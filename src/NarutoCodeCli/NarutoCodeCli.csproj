@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <AssemblyName>narutocode</AssemblyName>
+
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+        <DebugType>None</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+        <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == 'osx-arm64' and '$(PublishAot)' != 'true'">
+        <SelfContained>true</SelfContained>
+        <PublishReadyToRun>true</PublishReadyToRun>
+        <PublishTrimmed>true</PublishTrimmed>
+        <PublishSingleFile>true</PublishSingleFile>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <DebugType>None</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+        <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    </PropertyGroup>
+
+    <ItemGroup>
+   
+      <PackageReference Include="Spectre.Console" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
+    </ItemGroup>
+
+</Project>

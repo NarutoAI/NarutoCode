@@ -1,0 +1,64 @@
+# Build outputs
+bin/
+obj/
+[Bb]uild/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+arm64/
+
+# .NET user and cache files
+*.user
+*.userosscache
+*.suo
+*.rsuser
+*.DotSettings.user
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local project properties
+src/NarutoCodeCli/Properties/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Avalonia / desktop local runtime data
+data/
+backup/
+logs/
+
+# Local SQLite databases and journals
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# Publish outputs
+publish/
+artifacts/
+
+# Temporary files
+tmp/
+*.tmp
+*.temp

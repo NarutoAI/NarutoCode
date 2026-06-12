@@ -1,0 +1,18 @@
+<Project>
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <TargetFramework>net10.0</TargetFramework>
+        <Authors>Naruto</Authors>
+        <RepositoryUrl>https://github.com/NarutoAI/NarutoCode</RepositoryUrl>
+        <Description>通过 Agent 在终端中编程、执行任务、管理会话</Description>
+    </PropertyGroup>
+
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == 'osx-arm64'">
+        <DebugType>None</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+        <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    </PropertyGroup>
+</Project>

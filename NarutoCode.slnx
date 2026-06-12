@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/solution/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/NarutoCode.Application/NarutoCode.Application.csproj" />
+    <Project Path="src/NarutoCode.Domain/NarutoCode.Domain.csproj" />
+    <Project Path="src/NarutoCodeCli/NarutoCodeCli.csproj" />
+    <Project Path="src\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
+  </Folder>
+</Solution>
