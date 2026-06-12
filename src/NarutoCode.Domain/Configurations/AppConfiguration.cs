@@ -1,8 +1,13 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace NarutoCode.Domain.Configurations;
 
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, AllowTrailingCommas = true)]
+[JsonSourceGenerationOptions(
+    WriteIndented = true, 
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, 
+    AllowTrailingCommas = true,
+    ReadCommentHandling = JsonCommentHandling.Skip)]
 [JsonSerializable(typeof(AppConfiguration))]
 internal partial class AppConfigurationContext : JsonSerializerContext
 {
