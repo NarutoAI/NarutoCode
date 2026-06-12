@@ -38,6 +38,8 @@ services.AddSingleton<PendingUserMessageQueue>();
 services.AddSingleton<QueuedChatInputReader>();
 services.AddSingleton<ChatPromptReader>();
 services.AddSingleton<ChatScreenRenderer>();
+services.AddSingleton<SessionLauncherRenderer>();
+services.AddSingleton<SessionLauncherPromptReader>();
 services.AddSingleton<TuiChatApplication>();
 
 await using var serviceProvider = services.BuildServiceProvider();

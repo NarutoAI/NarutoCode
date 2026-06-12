@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using System.Globalization;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Conversations;
@@ -30,6 +30,76 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             return existingConversation;
         }
 
+        return await CreateForWorkDirectoryAsync(workDirectory, cancellationToken);
+    }
+
+    
+    public async Task<IReadOnlyList<ConversationSummary>> ListByWorkDirectoryAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(workDirectory))
+        {
+            throw new ArgumentException("工作目录不能为空。", nameof(workDirectory));
+        }
+
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT
+                c."Id",
+                c."Title",
+                c."CreatedAt",
+                c."UpdatedAt",
+                COUNT(m."Id") AS "MessageCount",
+                COALESCE((
+                    SELECT um."Content"
+                    FROM "Messages" um
+                    WHERE um."ConversationId" = c."Id"
+                      AND um."Role" = 'user'
+                      AND um."Visibility" = $visibility
+                    ORDER BY um."CreatedAt" DESC, um."Id" DESC
+                    LIMIT 1
+                ), '') AS "LastUserMessagePreview"
+            FROM "Conversations" c
+            LEFT JOIN "Messages" m
+                ON m."ConversationId" = c."Id"
+               AND m."Visibility" = $visibility
+            WHERE c."WorkDirectory" = $workDirectory
+            GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt"
+            ORDER BY c."UpdatedAt" DESC;
+            """;
+        AddParameter(command, "$workDirectory", workDirectory);
+        AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
+
+        var summaries = new List<ConversationSummary>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            summaries.Add(new ConversationSummary(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                ReadDateTime(reader, 2),
+                ReadDateTime(reader, 3),
+                Convert.ToInt32(reader.GetValue(4), CultureInfo.InvariantCulture),
+                CreateMessagePreview(reader.GetString(5))));
+        }
+
+        return summaries;
+    }
+
+    
+    public async Task<Conversation> CreateForWorkDirectoryAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(workDirectory))
+        {
+            throw new ArgumentException("工作目录不能为空。", nameof(workDirectory));
+        }
+
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         var now = DateTime.Now;
         var conversation = new Conversation
         {
@@ -41,6 +111,31 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
 
         await InsertConversationAsync(connection, conversation, cancellationToken);
         return conversation;
+    }
+
+    /// <inheritdoc />
+    public async Task<Conversation?> GetByIdAsync(
+        long conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory"
+            FROM "Conversations"
+            WHERE "Id" = $conversationId
+            LIMIT 1;
+            """;
+        AddParameter(command, "$conversationId", conversationId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadConversation(reader);
     }
 
     /// <summary>
@@ -154,6 +249,11 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             return null;
         }
 
+        return ReadConversation(reader);
+    }
+
+    private static Conversation ReadConversation(DbDataReader reader)
+    {
         return new Conversation
         {
             Id = reader.GetInt64(0),
@@ -266,6 +366,21 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
     private static string FormatDateTime(DateTime value)
     {
         return value.ToString("O", CultureInfo.InvariantCulture);
+    }
+
+
+
+    private static string CreateMessagePreview(string value)
+    {
+        const int maxPreviewLength = 80;
+        var preview = value
+            .Replace("\r\n", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Trim();
+        return preview.Length <= maxPreviewLength
+            ? preview
+            : string.Concat(preview.AsSpan(0, maxPreviewLength), "…");
     }
 
     private static string CreateConversationTitle(string workDirectory)

@@ -1,10 +1,15 @@
-﻿namespace NarutoCodeCli.Ui;
+namespace NarutoCodeCli.Ui;
 
 /// <summary>
-/// 定义 TUI 渲染使用的 Spectre Console 标记颜色。
+/// 定义 TUI 渲染使用的一组语义化颜色。
 /// </summary>
 internal sealed record TuiColorPalette
 {
+    /// <summary>
+    /// 调色板名称。
+    /// </summary>
+    public string Name { get; init; } = string.Empty;
+
     /// <summary>
     /// 主文本颜色。
     /// </summary>
@@ -49,26 +54,4 @@ internal sealed record TuiColorPalette
     /// 错误和危险操作颜色。
     /// </summary>
     public string Danger { get; init; } = "red1";
-}
-
-/// <summary>
-/// 提供当前 TUI 颜色主题。
-/// </summary>
-internal static class TuiColorPalettes
-{
-    /// <summary>
-    /// 当前默认颜色主题。
-    /// </summary>
-    public static TuiColorPalette Current { get; } = new()
-    {
-        Ink = "#172033",
-        Muted = "#667085",
-        Subtle = "#B8C4B4",
-        Accent = "#84CC16",
-        AccentStrong = "#0891B2",
-        Secondary = "#0EA5E9",
-        Thinking = "#22D3EE",
-        Warning = "#F59E0B",
-        Danger = "#F43F5E"
-    };
 }

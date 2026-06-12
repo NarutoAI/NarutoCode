@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Entities;
+﻿using NarutoCode.Domain.Entities;
 
 namespace NarutoCode.Domain.Conversations;
 
@@ -16,6 +16,37 @@ public interface IConversationRepository
     Task<Conversation> GetOrCreateByWorkDirectoryAsync(
         string workDirectory,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按最近更新时间倒序列出当前工作目录下的会话摘要。
+    /// </summary>
+    /// <param name="workDirectory">当前工作目录。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>会话摘要集合。</returns>
+    Task<IReadOnlyList<ConversationSummary>> ListByWorkDirectoryAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 为当前工作目录显式创建一个新会话。
+    /// </summary>
+    /// <param name="workDirectory">当前工作目录。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>新创建的会话实体。</returns>
+    Task<Conversation> CreateForWorkDirectoryAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按会话标识获取会话实体。
+    /// </summary>
+    /// <param name="conversationId">会话标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>找到时返回会话实体，否则返回 <see langword="null" />。</returns>
+    Task<Conversation?> GetByIdAsync(
+        long conversationId,
+        CancellationToken cancellationToken = default);
+
 
     /// <summary>
     /// 

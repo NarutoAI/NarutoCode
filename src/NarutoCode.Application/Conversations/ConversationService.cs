@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using NarutoCode.Application.Agents;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Conversations;
@@ -14,13 +14,47 @@ public class ConversationService(
     IAgentChatClient agentChatClient,
     IConversationRepository conversationRepository) : IConversationService
 {
-    /// <inheritdoc />
+    
     public async Task<ConversationHistory> LoadWorkspaceHistoryAsync(
         string workDirectory,
         CancellationToken cancellationToken = default)
     {
         var conversation =
             await conversationRepository.GetOrCreateByWorkDirectoryAsync(workDirectory, cancellationToken);
+        var messages = await conversationRepository.ListMessagesWithUIAsync(conversation.Id, cancellationToken);
+        var historyMessages = messages.Select(ToHistoryMessage).ToArray();
+
+        return new ConversationHistory(
+            new ConversationSessionId(conversation.Id),
+            historyMessages);
+    }
+
+    
+    public async Task<IReadOnlyList<ConversationSummary>> ListWorkspaceConversationsAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        return await conversationRepository.ListByWorkDirectoryAsync(workDirectory, cancellationToken);
+    }
+
+    
+    public async Task<ConversationHistory> CreateWorkspaceConversationAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var conversation = await conversationRepository.CreateForWorkDirectoryAsync(workDirectory, cancellationToken);
+        return new ConversationHistory(
+            new ConversationSessionId(conversation.Id),
+            []);
+    }
+
+    /// <inheritdoc />
+    public async Task<ConversationHistory> LoadConversationHistoryAsync(
+        ConversationSessionId conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        var conversation = await conversationRepository.GetByIdAsync(conversationId.Value, cancellationToken)
+            ?? throw new InvalidOperationException($"会话不存在：{conversationId.Value}");
         var messages = await conversationRepository.ListMessagesWithUIAsync(conversation.Id, cancellationToken);
         var historyMessages = messages.Select(ToHistoryMessage).ToArray();
 

@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Conversations;
+﻿using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 
@@ -15,7 +15,9 @@ internal sealed class TuiChatApplication(
     IWorkspaceContextAccessor workspaceContextAccessor,
     ChatCancellationCoordinator cancellationCoordinator,
     PendingUserMessageQueue pendingUserMessageQueue,
-    QueuedChatInputReader queuedInputReader)
+    QueuedChatInputReader queuedInputReader,
+    SessionLauncherRenderer sessionLauncherRenderer,
+    SessionLauncherPromptReader sessionLauncherPromptReader)
 {
     private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -35,7 +37,13 @@ internal sealed class TuiChatApplication(
     /// <param name="cancellationToken">取消令牌。</param>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        await LoadHistoryAsync(cancellationToken);
+        var launcherResult = await SelectConversationAsync(cancellationToken);
+        if (launcherResult.ShouldExit)
+        {
+            return;
+        }
+
+        await LoadHistoryAsync(launcherResult, cancellationToken);
         screenRenderer.Render(sessionState);
 
         while (!cancellationToken.IsCancellationRequested)
@@ -117,11 +125,112 @@ internal sealed class TuiChatApplication(
         }
     }
 
-    private async Task LoadHistoryAsync(CancellationToken cancellationToken)
+    private async Task<SessionLauncherResult> SelectConversationAsync(CancellationToken cancellationToken)
     {
-        var history = await conversationService.LoadWorkspaceHistoryAsync(
-            workspaceContextAccessor.Current.WorkingDirectory,
-            cancellationToken);
+        var workDirectory = workspaceContextAccessor.Current.WorkingDirectory;
+        var conversations = await conversationService.ListWorkspaceConversationsAsync(workDirectory, cancellationToken);
+        var state = new SessionLauncherState(workDirectory, conversations);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            sessionLauncherRenderer.Render(state);
+            var key = await sessionLauncherPromptReader.ReadKeyAsync(cancellationToken);
+            if (state.IsHistoryMode)
+            {
+                var historyResult = HandleHistoryKey(state, key);
+                if (historyResult is not null)
+                {
+                    return historyResult;
+                }
+
+                continue;
+            }
+
+            var hubResult = HandleHubKey(state, key);
+            if (hubResult is not null)
+            {
+                return hubResult;
+            }
+        }
+
+        return SessionLauncherResult.Exit();
+    }
+
+    private static SessionLauncherResult? HandleHubKey(SessionLauncherState state, ConsoleKeyInfo key)
+    {
+        switch (key.Key)
+        {
+            case ConsoleKey.UpArrow:
+                state.MoveHubSelection(-1);
+                return null;
+            case ConsoleKey.DownArrow:
+                state.MoveHubSelection(1);
+                return null;
+            case ConsoleKey.Escape:
+                return SessionLauncherResult.Exit();
+            case ConsoleKey.Enter:
+                return state.SelectedHubOption switch
+                {
+                    SessionLauncherOption.ContinueRecent => state.RecentConversation is null
+                        ? SessionLauncherResult.NewConversation()
+                        : SessionLauncherResult.Existing(new ConversationSessionId(state.RecentConversation.Id)),
+                    SessionLauncherOption.ViewHistory => EnterHistoryOrCreate(state),
+                    SessionLauncherOption.NewConversation => SessionLauncherResult.NewConversation(),
+                    _ => SessionLauncherResult.Exit()
+                };
+            default:
+                return null;
+        }
+    }
+
+    private static SessionLauncherResult? HandleHistoryKey(SessionLauncherState state, ConsoleKeyInfo key)
+    {
+        switch (key.Key)
+        {
+            case ConsoleKey.UpArrow:
+                state.MoveHistorySelection(-1);
+                return null;
+            case ConsoleKey.DownArrow:
+                state.MoveHistorySelection(1);
+                return null;
+            case ConsoleKey.Escape:
+                state.ReturnToHub();
+                return null;
+            case ConsoleKey.N:
+                return SessionLauncherResult.NewConversation();
+            case ConsoleKey.Enter when state.Conversations.Count > 0:
+                return SessionLauncherResult.Existing(
+                    new ConversationSessionId(state.Conversations[state.SelectedHistoryIndex].Id));
+            default:
+                return null;
+        }
+    }
+
+    private static SessionLauncherResult? EnterHistoryOrCreate(SessionLauncherState state)
+    {
+        if (state.Conversations.Count == 0)
+        {
+            return SessionLauncherResult.NewConversation();
+        }
+
+        state.EnterHistoryMode();
+        return null;
+    }
+
+    private async Task LoadHistoryAsync(SessionLauncherResult launcherResult, CancellationToken cancellationToken)
+    {
+        var history = launcherResult switch
+        {
+            { CreateNew: true } => await conversationService.CreateWorkspaceConversationAsync(
+                workspaceContextAccessor.Current.WorkingDirectory,
+                cancellationToken),
+            { ConversationId: { } conversationId } => await conversationService.LoadConversationHistoryAsync(
+                conversationId,
+                cancellationToken),
+            _ => await conversationService.LoadWorkspaceHistoryAsync(
+                workspaceContextAccessor.Current.WorkingDirectory,
+                cancellationToken)
+        };
 
         sessionId = history.SessionId;
         sessionState.LoadHistory(history);

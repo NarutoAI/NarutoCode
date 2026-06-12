@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Messages;
+﻿using NarutoCode.Domain.Messages;
 
 namespace NarutoCode.Domain.Conversations;
 
@@ -16,6 +16,37 @@ public interface IConversationService
     Task<ConversationHistory> LoadWorkspaceHistoryAsync(
         string workDirectory,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 列出当前工作目录下可供用户选择的会话摘要。
+    /// </summary>
+    /// <param name="workDirectory">当前工作目录。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>按最近更新时间倒序排列的会话摘要。</returns>
+    Task<IReadOnlyList<ConversationSummary>> ListWorkspaceConversationsAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 为当前工作目录创建新的空会话并返回历史对象。
+    /// </summary>
+    /// <param name="workDirectory">当前工作目录。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>新会话历史。</returns>
+    Task<ConversationHistory> CreateWorkspaceConversationAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按指定会话标识加载会话历史。
+    /// </summary>
+    /// <param name="conversationId">会话标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>指定会话历史。</returns>
+    Task<ConversationHistory> LoadConversationHistoryAsync(
+        ConversationSessionId conversationId,
+        CancellationToken cancellationToken = default);
+
 
     /// <summary>
     /// 向指定会话发送用户消息，并按生成顺序返回助手输出片段。
