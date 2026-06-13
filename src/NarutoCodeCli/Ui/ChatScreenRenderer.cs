@@ -76,7 +76,10 @@ internal sealed class ChatScreenRenderer(
         {
             CreateBrandHeader(sessionState),
             new Text(string.Empty),
-            CreateConversationStream(sessionState)
+            CreateConversationStream(sessionState),
+            new Text(string.Empty),
+            CreateTokenUsageFooter(sessionState),
+            new Text(string.Empty)
         };
 
         if (sessionState.IsOperationRunning && !sessionState.IsToolApprovalPending)
@@ -118,7 +121,13 @@ internal sealed class ChatScreenRenderer(
             new Markup(
                 $"[bold {Palette.Accent}]◆ NarutoCode[/] [{Palette.Muted}]agentic coding TUI[/] [{Palette.Subtle}]·[/] [bold {Palette.Secondary}]Command Canvas[/]"),
             new Markup(
-                $"[{Palette.Muted}]cwd[/] [{Palette.Ink}]{Markup.Escape(cwd)}[/]   [{Palette.Muted}]mode[/] [{Palette.Accent}]chat[/]   [{Palette.Muted}]tokens[/] [{Palette.Ink}]{sessionState.EstimatedTokens}[/]{operationStatus}"));
+                $"[{Palette.Muted}]cwd[/] [{Palette.Ink}]{Markup.Escape(cwd)}[/]   [{Palette.Muted}]mode[/] [{Palette.Accent}]chat[/]{operationStatus}"));
+    }
+
+    private static IRenderable CreateTokenUsageFooter(ChatSessionState sessionState)
+    {
+        return new Markup(
+            $"[{Palette.Secondary}]◈[/] [bold {Palette.Accent}]context[/] [{Palette.Secondary}]{sessionState.EstimatedTokens}[/]");
     }
 
     private IRenderable CreateConversationStream(ChatSessionState sessionState)
