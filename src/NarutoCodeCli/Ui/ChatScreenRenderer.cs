@@ -1,4 +1,4 @@
-﻿using NarutoCode.Domain.Messages;
+using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 using Spectre.Console;
 using Spectre.Console.Rendering;
@@ -118,7 +118,7 @@ internal sealed class ChatScreenRenderer(
             new Markup(
                 $"[bold {Palette.Accent}]◆ NarutoCode[/] [{Palette.Muted}]agentic coding TUI[/] [{Palette.Subtle}]·[/] [bold {Palette.Secondary}]Command Canvas[/]"),
             new Markup(
-                $"[{Palette.Muted}]cwd[/] [{Palette.Ink}]{Markup.Escape(cwd)}[/]   [{Palette.Muted}]mode[/] [{Palette.Accent}]chat[/]   [{Palette.Muted}]files[/] [{Palette.Ink}]0[/]   [{Palette.Muted}]tasks[/] [{Palette.Ink}]1[/]   [{Palette.Muted}]tokens[/] [{Palette.Ink}]{sessionState.EstimatedTokens}[/]{operationStatus}"));
+                $"[{Palette.Muted}]cwd[/] [{Palette.Ink}]{Markup.Escape(cwd)}[/]   [{Palette.Muted}]mode[/] [{Palette.Accent}]chat[/]   [{Palette.Muted}]tokens[/] [{Palette.Ink}]{sessionState.EstimatedTokens}[/]{operationStatus}"));
     }
 
     private IRenderable CreateConversationStream(ChatSessionState sessionState)
