@@ -1,5 +1,6 @@
 <Project>
   <ItemGroup>
+    <PackageVersion Include="Microsoft.Agents.AI.Anthropic" Version="1.10.0-preview.260610.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageVersion Include="MSTest" Version="4.0.2" />
     <PackageVersion Include="Microsoft.Agents.AI" Version="1.10.0" />

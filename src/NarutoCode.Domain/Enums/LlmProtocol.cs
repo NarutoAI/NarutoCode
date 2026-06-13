@@ -14,4 +14,8 @@ public enum LlmProtocol
     /// OpenAI Responses API 协议。
     /// </summary>
     OpenAIResponses,
+    /// <summary>
+    /// 
+    /// </summary>
+    Anthropic
 }

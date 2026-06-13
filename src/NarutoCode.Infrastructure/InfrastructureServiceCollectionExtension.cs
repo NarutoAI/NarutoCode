@@ -30,6 +30,7 @@ public static class InfrastructureServiceCollectionExtension
             services.AddKeyedSingleton<IChatClientFactory, OpenAIChatClientFactory>(nameof(LlmProtocol.OpenAIChat));
             services.AddKeyedSingleton<IChatClientFactory, OpenAIResponsesClientFactory>(
                 nameof(LlmProtocol.OpenAIResponses));
+            services.AddKeyedSingleton<IChatClientFactory, AnthropicChatClientFactory>(nameof(LlmProtocol.Anthropic));
             services.AddSingleton<IChatClient>(provider =>
                 provider.GetRequiredKeyedService<IChatClientFactory>(AppData.Config.Llm.Protocol)
                     .Create(AppData.Config.Llm)

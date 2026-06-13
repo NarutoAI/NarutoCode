@@ -7,18 +7,19 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\NarutoCode.Application\NarutoCode.Application.csproj" />
+        <ProjectReference Include="..\NarutoCode.Application\NarutoCode.Application.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.Agents.AI" />
-      <PackageReference Include="Microsoft.Agents.AI.Harness" />
-      <PackageReference Include="Microsoft.Agents.AI.OpenAI" />
-      <PackageReference Include="Microsoft.Data.Sqlite" />
-        <PackageReference Include="Serilog" />
-        <PackageReference Include="Serilog.AspNetCore" />
-        <PackageReference Include="Serilog.Sinks.Async" />
-        <PackageReference Include="Serilog.Sinks.File" />
+        <PackageReference Include="Microsoft.Agents.AI"/>
+        <PackageReference Include="Microsoft.Agents.AI.Anthropic"/>
+        <PackageReference Include="Microsoft.Agents.AI.Harness"/>
+        <PackageReference Include="Microsoft.Agents.AI.OpenAI"/>
+        <PackageReference Include="Microsoft.Data.Sqlite"/>
+        <PackageReference Include="Serilog"/>
+        <PackageReference Include="Serilog.AspNetCore"/>
+        <PackageReference Include="Serilog.Sinks.Async"/>
+        <PackageReference Include="Serilog.Sinks.File"/>
     </ItemGroup>
 
 </Project>
