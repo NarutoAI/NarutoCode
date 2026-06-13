@@ -144,7 +144,8 @@ internal sealed class ChatScreenRenderer(
             {
                 var message = sessionState.Messages[index];
                 var cacheMarkdown = index < sessionState.Messages.Count - 1;
-                var isWaitingAssistantMessage = (sessionState.IsOperationRunning || sessionState.IsToolApprovalPending)
+                var isWaitingAssistantMessage = sessionState.IsOperationRunning
+                                                && !sessionState.IsToolApprovalPending
                                                 && index == sessionState.Messages.Count - 1
                                                 && message.Role == ChatRole.Assistant;
                 rows.Add(CreateMessageCard(message, cacheMarkdown, isWaitingAssistantMessage));
