@@ -40,7 +40,15 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
                 connection,
                 conversationId,
                 messages[index],
-                index == 0 ? (int) totalUsage.GetValueOrDefault() : 0,
+                cancellationToken);
+        }
+        //维护会话的token使用量
+        if (totalUsage.GetValueOrDefault() > 0)
+        {
+            await AddConversationTokenCountAsync(
+                connection,
+                conversationId,
+                totalUsage.GetValueOrDefault(),
                 cancellationToken);
         }
     }
@@ -49,7 +57,6 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         DbConnection connection,
         long conversationId,
         ChatMessage chatMessage,
-        int tokenCount,
         CancellationToken cancellationToken)
     {
         var message = new Message
@@ -60,7 +67,6 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
             MessageType = GetMessageType(chatMessage.Contents),
             Visibility = GetMessageVisibility(chatMessage),
             Content = chatMessage.Text,
-            TokenCount = tokenCount,
             ModelContent = AIContentJsonSerializerContext.SerializeContents(chatMessage.Contents)
 #pragma warning restore MEAI001
         };
@@ -68,8 +74,8 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO "Messages" ("Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility", "TokenCount")
-            VALUES ($id, $conversationId, $role, $content, $modelContent, $createdAt, $contentType, $messageType, $visibility, $tokenCount);
+            INSERT INTO "Messages" ("Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility")
+            VALUES ($id, $conversationId, $role, $content, $modelContent, $createdAt, $contentType, $messageType, $visibility);
             """;
         AddParameter(command, "$id", message.Id);
         AddParameter(command, "$conversationId", message.ConversationId);
@@ -80,7 +86,32 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         AddParameter(command, "$contentType", message.ContentType);
         AddParameter(command, "$messageType", (int) message.MessageType);
         AddParameter(command, "$visibility", message.Visibility.ToString());
-        AddParameter(command, "$tokenCount", message.TokenCount);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 累加会话级 Token 用量。
+    /// </summary>
+    /// <param name="connection">数据库连接。</param>
+    /// <param name="conversationId">对话 ID。</param>
+    /// <param name="tokenCount">本轮 Token 用量。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private static async Task AddConversationTokenCountAsync(
+        DbConnection connection,
+        long conversationId,
+        long tokenCount,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            UPDATE "Conversations"
+            SET "TokenCount" = "TokenCount" + $tokenCount,
+                "LastUsageTokenCount" = $tokenCount
+            WHERE "Id" = $conversationId;
+            """;
+        AddParameter(command, "$conversationId", conversationId);
+        AddParameter(command, "$tokenCount", tokenCount);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

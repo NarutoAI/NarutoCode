@@ -63,5 +63,13 @@ public static class AgentSessionExtension
                 AgentAbstractionsJsonUtilities.DefaultOptions);
             return agentSession;
         }
+        
+        public void SetSessionUsage(UsageContent usage)
+        {
+            if (agentSession.StateBag.TryGetValue(nameof(PersistenceChatHistoryProvider),out PersistenceChatHistoryProvider.State? state) && state!=null)
+            {
+                state.TotalUsage = usage.Details.TotalTokenCount;
+            }
+        }
     }
 }

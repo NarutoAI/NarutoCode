@@ -70,9 +70,4 @@ public class Message
     /// 消息可见性，用于过滤框架内部补充的上下文消息。
     /// </summary>
     public MessageVisibility Visibility { get; set; } = MessageVisibility.Visible;
-
-    /// <summary>
-    /// 消息的Token数量（可选，用于统计）
-    /// </summary>
-    public int? TokenCount { get; set; }
 }

@@ -45,7 +45,7 @@ internal sealed class SessionLauncherRenderer
                 "继续最近会话",
                 state.RecentConversation is null
                     ? "当前目录暂无历史会话，回车将新建会话"
-                    : $"{FormatRelativeTime(state.RecentConversation.UpdatedAt)} · {state.RecentConversation.MessageCount} 条消息 · {FormatPreview(state.RecentConversation)}"),
+                    : $"{FormatRelativeTime(state.RecentConversation.UpdatedAt)} · {state.RecentConversation.MessageCount} 条消息 · {FormatTokenUsage(state.RecentConversation)} · {FormatPreview(state.RecentConversation)}"),
             CreateHubOption(
                 1,
                 state.SelectedHubIndex,
@@ -124,7 +124,19 @@ internal sealed class SessionLauncherRenderer
 
         return new Rows(
             new Markup($"  [{markerStyle}]{marker}[/] [{titleStyle}]{Markup.Escape(summary.Title)}[/]"),
-            new Markup($"      [{metaStyle}]{FormatRelativeTime(summary.UpdatedAt)} · {summary.MessageCount} 条消息 · {Markup.Escape(preview)}[/]"));
+            new Markup($"      [{metaStyle}]{FormatRelativeTime(summary.UpdatedAt)} · {summary.MessageCount} 条消息 · {FormatTokenUsage(summary)} · {Markup.Escape(preview)}[/]"));
+    }
+
+    private static string FormatTokenUsage(ConversationSummary summary)
+    {
+        return $"总计 {FormatTokenCount(summary.TokenCount)} · 最近 {FormatTokenCount(summary.LastUsageTokenCount)}";
+    }
+
+    private static string FormatTokenCount(long tokenCount)
+    {
+        return tokenCount <= 0
+            ? "0 tokens"
+            : $"{tokenCount:N0} tokens";
     }
 
     private static string FormatPreview(ConversationSummary summary)

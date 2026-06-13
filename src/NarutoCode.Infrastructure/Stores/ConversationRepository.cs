@@ -1,4 +1,4 @@
-﻿using System.Data.Common;
+using System.Data.Common;
 using System.Globalization;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Conversations;
@@ -52,6 +52,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 c."Title",
                 c."CreatedAt",
                 c."UpdatedAt",
+                c."TokenCount",
+                c."LastUsageTokenCount",
                 COUNT(m."Id") AS "MessageCount",
                 COALESCE((
                     SELECT um."Content"
@@ -67,7 +69,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 ON m."ConversationId" = c."Id"
                AND m."Visibility" = $visibility
             WHERE c."WorkDirectory" = $workDirectory
-            GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt"
+            GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt", c."TokenCount", c."LastUsageTokenCount"
             ORDER BY c."UpdatedAt" DESC;
             """;
         AddParameter(command, "$workDirectory", workDirectory);
@@ -82,8 +84,10 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 reader.GetString(1),
                 ReadDateTime(reader, 2),
                 ReadDateTime(reader, 3),
-                Convert.ToInt32(reader.GetValue(4), CultureInfo.InvariantCulture),
-                CreateMessagePreview(reader.GetString(5))));
+                Convert.ToInt32(reader.GetValue(6), CultureInfo.InvariantCulture),
+                Convert.ToInt64(reader.GetValue(4), CultureInfo.InvariantCulture),
+                Convert.ToInt64(reader.GetValue(5), CultureInfo.InvariantCulture),
+                CreateMessagePreview(reader.GetString(7))));
         }
 
         return summaries;
@@ -122,7 +126,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount"
             FROM "Conversations"
             WHERE "Id" = $conversationId
             LIMIT 1;
@@ -207,8 +211,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                     CreatedAt = item.CreatedAt,
                     ContentType = item.ContentType,
                     MessageType = messageType,
-                    Visibility = item.Visibility,
-                    TokenCount = item.TokenCount
+                    Visibility = item.Visibility
                 });
             }
         }
@@ -235,7 +238,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount"
             FROM "Conversations"
             WHERE "WorkDirectory" = $workDirectory
             ORDER BY "UpdatedAt" DESC
@@ -260,7 +263,9 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             Title = reader.GetString(1),
             CreatedAt = ReadDateTime(reader, 2),
             UpdatedAt = ReadDateTime(reader, 3),
-            WorkDirectory = reader.GetString(4)
+            WorkDirectory = reader.GetString(4),
+            TokenCount = reader.GetInt64(5),
+            LastUsageTokenCount = reader.GetInt64(6)
         };
     }
 
@@ -272,14 +277,16 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory")
-            VALUES ($id, $title, $createdAt, $updatedAt, $workDirectory);
+            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount")
+            VALUES ($id, $title, $createdAt, $updatedAt, $workDirectory, $tokenCount, $lastUsageTokenCount);
             """;
         AddParameter(command, "$id", conversation.Id);
         AddParameter(command, "$title", conversation.Title);
         AddParameter(command, "$createdAt", FormatDateTime(conversation.CreatedAt));
         AddParameter(command, "$updatedAt", FormatDateTime(conversation.UpdatedAt));
         AddParameter(command, "$workDirectory", conversation.WorkDirectory);
+        AddParameter(command, "$tokenCount", conversation.TokenCount);
+        AddParameter(command, "$lastUsageTokenCount", conversation.LastUsageTokenCount);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -293,7 +300,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         command.CommandText = filterUiMessageTypes
             ?
             """
-            SELECT "Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility", "TokenCount"
+            SELECT "Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility"
             FROM "Messages"
             WHERE "ConversationId" = $conversationId
               AND "Visibility" = $visibility
@@ -302,7 +309,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             """
             :
             """
-            SELECT "Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility", "TokenCount"
+            SELECT "Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility"
             FROM "Messages"
             WHERE "ConversationId" = $conversationId
               AND "Visibility" = $visibility
@@ -342,8 +349,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             CreatedAt = ReadDateTime(reader, 5),
             ContentType = reader.GetString(6),
             MessageType = (AgentMessageType) reader.GetInt32(7),
-            Visibility = Enum.Parse<MessageVisibility>(reader.GetString(8)),
-            TokenCount = reader.IsDBNull(9) ? null : reader.GetInt32(9)
+            Visibility = Enum.Parse<MessageVisibility>(reader.GetString(8))
         };
     }
 

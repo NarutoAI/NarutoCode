@@ -21,6 +21,7 @@ public class MafAgentChatClient : IAgentChatClient
 
     private readonly IConversationRepository _conversationRepository;
 
+
     /// <summary>
     /// 初始化 <see cref="MafAgentChatClient" /> 实例。
     /// </summary>
@@ -196,7 +197,6 @@ public class MafAgentChatClient : IAgentChatClient
 
         var currentChatMessage = chatMessage!;
         var currentAgentSession = agentSession!;
-
         await using var enumerator = _agent.RunStreamingAsync(
                 currentChatMessage,
                 currentAgentSession,
@@ -244,12 +244,14 @@ public class MafAgentChatClient : IAgentChatClient
             if (reasoningContent is not null && !string.IsNullOrWhiteSpace(reasoningContent.Text))
             {
                 yield return new(AgentMessageType.Thinking, reasoningContent.Text);
+                continue;
             }
 
             var functionCallContent = item.Contents?.OfType<FunctionCallContent>().FirstOrDefault();
             if (functionCallContent is not null)
             {
                 yield return new(AgentMessageType.ToolCall, $"{functionCallContent.Name}");
+                continue;
             }
 
             var toolApprovalRequestContent = item.Contents?.OfType<ToolApprovalRequestContent>().FirstOrDefault();
@@ -262,14 +264,23 @@ public class MafAgentChatClient : IAgentChatClient
                         toolApprovalContent: AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(
                             toolApprovalRequestContent));
                 }
+
+                continue;
             }
 
             var errorContent = item.Contents?.OfType<ErrorContent>().FirstOrDefault();
             if (errorContent is not null)
             {
                 yield return new(AgentMessageType.Error, errorContent.Message);
+                continue;
             }
-            if (!string.IsNullOrEmpty(item.Text))
+            //更新当前会话的使用量
+            var usageContent = item.Contents?.OfType<UsageContent>().FirstOrDefault();
+            if (usageContent != null)
+            {
+                agentSession!.SetSessionUsage(usageContent);
+            }
+            else if (!string.IsNullOrEmpty(item.Text))
             {
                 yield return new(AgentMessageType.Content, item.Text);
             }
@@ -311,6 +322,7 @@ public class MafAgentChatClient : IAgentChatClient
         {
             return chatMessage;
         }
+
         chatMessage.AdditionalProperties = new AdditionalPropertiesDictionary
         {
             [ChatMessageAdditionalPropertyNames.IsUserInput] = true

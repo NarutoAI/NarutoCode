@@ -8,6 +8,8 @@ namespace NarutoCode.Domain.Conversations;
 /// <param name="CreatedAt">创建时间。</param>
 /// <param name="UpdatedAt">最后更新时间。</param>
 /// <param name="MessageCount">可见消息数量。</param>
+/// <param name="TokenCount">会话累计 Token 数量。</param>
+/// <param name="LastUsageTokenCount">最近一次对话 Token 消耗数量。</param>
 /// <param name="LastUserMessagePreview">最后一条用户消息摘要。</param>
 public sealed record ConversationSummary(
     long Id,
@@ -15,4 +17,6 @@ public sealed record ConversationSummary(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int MessageCount,
+    long TokenCount,
+    long LastUsageTokenCount,
     string LastUserMessagePreview);

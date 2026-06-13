@@ -37,7 +37,12 @@ public class Conversation
     public string WorkDirectory { get; set; } = string.Empty;
 
     /// <summary>
-    /// 对话消息列表
+    /// 对话累计 Token 数量。
     /// </summary>
-    public virtual List<Message> Messages { get; private set; } = new();
+    public long TokenCount { get; set; }
+
+    /// <summary>
+    /// 最近一次对话 Token 消耗数量。
+    /// </summary>
+    public long LastUsageTokenCount { get; set; }
 }
