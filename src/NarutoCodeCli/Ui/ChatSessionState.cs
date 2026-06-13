@@ -9,6 +9,7 @@ namespace NarutoCodeCli.Ui;
 internal sealed class ChatSessionState
 {
     private readonly List<ChatMessage> messages = [];
+    private long initialContextTokenUsage;
 
     /// <summary>
     /// 当前会话消息列表。
@@ -31,9 +32,9 @@ internal sealed class ChatSessionState
     public bool IsOperationRunning { get; private set; }
 
     /// <summary>
-    /// 基于当前消息内容估算的 Token 数，仅用于 TUI 顶部状态展示。
+    /// 基于模型 Usage 消息累计的上下文 Token 使用量，用于 TUI 底部状态展示。
     /// </summary>
-    public int EstimatedTokens => messages.Sum(message => Math.Max(1, message.ContentLength / 4));
+    public long ContextTokenUsage => initialContextTokenUsage + messages.Sum(message => message.ContextTokenUsage);
 
     /// <summary>
     /// 使用历史消息恢复当前 UI 状态。
@@ -44,6 +45,7 @@ internal sealed class ChatSessionState
         ArgumentNullException.ThrowIfNull(history);
 
         messages.Clear();
+        initialContextTokenUsage = Math.Max(0, history.TokenCount);
         PendingToolApprovalRequest = null;
         IsOperationRunning = false;
         var totalMessages = history.Messages.Count;
@@ -141,6 +143,11 @@ internal sealed class ChatSessionState
 
     private void AddAssistantHistoryMessage(AgentMessage message, bool isLast)
     {
+        if (message.Type == AgentMessageType.Usage)
+        {
+            return;
+        }
+
         var assistantMessage = messages.Count > 0 && messages[^1].Role == ChatRole.Assistant
             ? messages[^1]
             : ChatMessage.CreateAssistant();

@@ -39,8 +39,12 @@ public enum AgentMessageType
     /// </summary>
     ToolApprovalResponse,
     /// <summary>
+    /// token用量
+    /// </summary>
+    Usage,
+    /// <summary>
     /// 错误
     /// </summary>
-    Error
+    Error,
     
 }

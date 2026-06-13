@@ -127,7 +127,7 @@ internal sealed class ChatScreenRenderer(
     private static IRenderable CreateTokenUsageFooter(ChatSessionState sessionState)
     {
         return new Markup(
-            $"[{Palette.Secondary}]◈[/] [bold {Palette.Accent}]context[/] [{Palette.Secondary}]{sessionState.EstimatedTokens}[/]");
+            $"[{Palette.Secondary}]◈[/] [bold {Palette.Accent}]context[/] [{Palette.Secondary}]{sessionState.ContextTokenUsage}[/]");
     }
 
     private IRenderable CreateConversationStream(ChatSessionState sessionState)
@@ -212,6 +212,11 @@ internal sealed class ChatScreenRenderer(
         var rows = new List<IRenderable>();
         foreach (var agentMessage in message.AgentMessages)
         {
+            if (agentMessage.Type == AgentMessageType.Usage)
+            {
+                continue;
+            }
+
             rows.Add(CreateAgentMessageContent(agentMessage, cacheMarkdown));
         }
 

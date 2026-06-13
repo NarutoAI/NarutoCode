@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using NarutoCode.Application.Agents;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Conversations;
@@ -26,7 +26,8 @@ public class ConversationService(
 
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
-            historyMessages);
+            historyMessages,
+            conversation.TokenCount);
     }
 
     
@@ -45,7 +46,8 @@ public class ConversationService(
         var conversation = await conversationRepository.CreateForWorkDirectoryAsync(workDirectory, cancellationToken);
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
-            []);
+            [],
+            conversation.TokenCount);
     }
 
     /// <inheritdoc />
@@ -60,7 +62,8 @@ public class ConversationService(
 
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
-            historyMessages);
+            historyMessages,
+            conversation.TokenCount);
     }
 
     /// <inheritdoc />

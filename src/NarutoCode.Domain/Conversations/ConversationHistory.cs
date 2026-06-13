@@ -7,6 +7,8 @@ namespace NarutoCode.Domain.Conversations;
 /// </summary>
 /// <param name="SessionId">对话会话标识。</param>
 /// <param name="Messages">按创建顺序排列的历史消息。</param>
+/// <param name="TokenCount">会话进入前已经累计的 Token 使用量。</param>
 public sealed record ConversationHistory(
     ConversationSessionId SessionId,
-    IReadOnlyList<ConversationHistoryMessage> Messages);
+    IReadOnlyList<ConversationHistoryMessage> Messages,
+    long TokenCount = 0);

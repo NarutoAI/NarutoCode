@@ -279,6 +279,7 @@ public class MafAgentChatClient : IAgentChatClient
             if (usageContent != null)
             {
                 agentSession!.SetSessionUsage(usageContent);
+                yield return new(AgentMessageType.Usage, usageContent.Details.TotalTokenCount.GetValueOrDefault().ToString());
             }
             else if (!string.IsNullOrEmpty(item.Text))
             {

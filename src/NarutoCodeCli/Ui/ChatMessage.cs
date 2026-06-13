@@ -53,11 +53,11 @@ internal sealed class ChatMessage
         : assistantContentCache ??= assistantContent.ToString();
 
     /// <summary>
-    /// 当前消息合并后的文本长度。
+    /// 当前消息中模型返回的上下文 Token 用量累计值。
     /// </summary>
-    public int ContentLength => Role == ChatRole.User
-        ? userContent.Length
-        : assistantContent.Length;
+    public long ContextTokenUsage => agentMessages
+        .Where(message => message.Type == AgentMessageType.Usage)
+        .Sum(message => long.TryParse(message.Content, out var usage) ? usage : 0);
 
     /// <summary>
     /// 当前消息渲染版本，内容变化时递增，用于复用已完成消息的渲染结果。
@@ -91,6 +91,13 @@ internal sealed class ChatMessage
     {
         if (string.IsNullOrEmpty(message.Content))
         {
+            return;
+        }
+
+        if (message.Type == AgentMessageType.Usage)
+        {
+            agentMessages.Add(message);
+            RenderVersion++;
             return;
         }
 
