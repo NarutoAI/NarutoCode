@@ -51,8 +51,7 @@ public class AgentFactory(
         var memoryPath = Path.Combine(workspaceContextAccessor.Current.WorkingDirectory, ProjectConstant.ConfigurationDirectory, "memory");
         //校验工作目录是否存在AGENTS.md文档
         var agentMd = AgentsMdAsync(workspaceContextAccessor.Current.WorkingDirectory);
-        return chatClient.AsHarnessAgent(AppData.Config.Llm.MaxContextWindowTokens, MaxOutputTokens,
-            new HarnessAgentOptions
+        return chatClient.AsHarnessAgent(new HarnessAgentOptions
             {
                 AgentModeProviderOptions = new AgentModeProviderOptions
                 {
@@ -185,6 +184,8 @@ public class AgentFactory(
                     new CollectApprovalToolAiContextProvider()
                 ],
                 DisableFileAccess = true, //禁用自带的文件处理
+                MaxContextWindowTokens = AppData.Config.Llm.MaxContextWindowTokens,
+                MaxOutputTokens = MaxOutputTokens
                 //文件处理
                 // FileAccessStore = new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
             },loggerFactory: loggerFactory);
