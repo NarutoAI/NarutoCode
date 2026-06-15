@@ -274,12 +274,14 @@ public class MafAgentChatClient : IAgentChatClient
                 yield return new(AgentMessageType.Error, errorContent.Message);
                 continue;
             }
+
             //更新当前会话的使用量
             var usageContent = item.Contents?.OfType<UsageContent>().FirstOrDefault();
             if (usageContent != null)
             {
                 agentSession!.SetSessionUsage(usageContent);
-                yield return new(AgentMessageType.Usage, usageContent.Details.TotalTokenCount.GetValueOrDefault().ToString());
+                yield return new(AgentMessageType.Usage,
+                    usageContent.Details.TotalTokenCount.GetValueOrDefault().ToString());
             }
             else if (!string.IsNullOrEmpty(item.Text))
             {
@@ -287,12 +289,13 @@ public class MafAgentChatClient : IAgentChatClient
             }
         }
 
-        if (await currentAgentSession.IsOpenTodoAsync(_agent))
+        //如果开启计划或者待办的话 返回允许用户审批
+        if (currentAgentSession.IsOpenPlan(_agent) || await currentAgentSession.IsOpenTodoAsync(_agent))
         {
             yield return new(AgentMessageType.Plan, string.Empty);
         }
-
-        if (await currentAgentSession.IsExistsInProgressTask(_agent))
+        //如果存在遗留未完成的任务，就继续执行
+        else if (await currentAgentSession.IsExistsInProgressTask(_agent))
         {
             yield return new(AgentMessageType.RemainingTask, string.Empty);
         }

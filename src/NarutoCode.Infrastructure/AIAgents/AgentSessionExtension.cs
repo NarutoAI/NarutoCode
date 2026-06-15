@@ -13,6 +13,21 @@ public static class AgentSessionExtension
     extension(AgentSession agentSession)
     {
         /// <summary>
+        /// 是否开启计划模式
+        /// </summary>
+        /// <returns></returns>
+        public bool IsOpenPlan(AIAgent agent)
+        {
+#pragma warning disable MAAI001
+            var agentModeProvider = agent.GetService<AgentModeProvider>();
+            //
+            var mode = agentModeProvider?.GetMode(agentSession);
+
+            return string.Equals(mode, "plan", StringComparison.CurrentCultureIgnoreCase);
+#pragma warning restore MAAI001
+        }
+
+        /// <summary>
         /// 是否开启待办任务
         /// </summary>
         /// <returns></returns>
@@ -40,14 +55,14 @@ public static class AgentSessionExtension
             var todoProvider = agent.GetService<TaskProvider>();
             //获取所有的任务
             var remainings = todoProvider.GetList(agentSession);
-            if (remainings.Any(a=>a.Status== TaskAgentTaskStatus.InProgress))
+            if (remainings.Any(a => a.Status == TaskAgentTaskStatus.InProgress))
             {
                 return true;
             }
 #pragma warning restore MAAI001
             return false;
         }
-        
+
         /// <summary>
         /// 根据会话id 创建会话
         /// </summary>
@@ -63,10 +78,11 @@ public static class AgentSessionExtension
                 AgentAbstractionsJsonUtilities.DefaultOptions);
             return agentSession;
         }
-        
+
         public void SetSessionUsage(UsageContent usage)
         {
-            if (agentSession.StateBag.TryGetValue(nameof(PersistenceChatHistoryProvider),out PersistenceChatHistoryProvider.State? state) && state!=null)
+            if (agentSession.StateBag.TryGetValue(nameof(PersistenceChatHistoryProvider),
+                    out PersistenceChatHistoryProvider.State? state) && state != null)
             {
                 state.TotalUsage = usage.Details.TotalTokenCount;
             }

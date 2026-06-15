@@ -159,7 +159,7 @@ public class AgentFactory(
                                  """
                         }),
                     //记忆
-                    new FileMemoryProvider(
+                    ToolContinuationSkippingAiContextProvider.Wrap(new FileMemoryProvider(
                         new FileSystemAgentFileStore(memoryPath),
                         _ => new FileMemoryState
                         {
@@ -180,9 +180,11 @@ public class AgentFactory(
                                            - 当用户纠正术语、命名、事实、规则或项目约定时，必须主动调用 `FileMemory_SaveFile` 记住纠正后的信息，并以后以纠正后的信息为准。
                                            - 记忆必须是简洁中文要点，优先归纳而不是复制用户原文。
                                            """
-                        }),
+                        })),
+                    ToolContinuationSkippingAiContextProvider.Wrap(new TodoProvider()),
                     new CollectApprovalToolAiContextProvider()
                 ],
+                DisableTodoProvider = true,
                 DisableFileAccess = true, //禁用自带的文件处理
                 MaxContextWindowTokens = AppData.Config.Llm.MaxContextWindowTokens,
                 MaxOutputTokens = MaxOutputTokens
