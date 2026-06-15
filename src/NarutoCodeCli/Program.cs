@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Text;
+using Microsoft.Extensions.DependencyInjection;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure;
@@ -49,6 +50,8 @@ await application.RunAsync(cancellationTokenSource.Token);
 
 static void ConfigureAnsiConsole()
 {
+    ConfigureConsoleEncoding();
+
     if (Console.IsOutputRedirected)
     {
         return;
@@ -59,4 +62,19 @@ static void ConfigureAnsiConsole()
         Ansi = AnsiSupport.Yes,
         ColorSystem = ColorSystemSupport.TrueColor
     });
+}
+
+static void ConfigureConsoleEncoding()
+{
+    var utf8Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    if (!Console.IsOutputRedirected)
+    {
+        Console.OutputEncoding = utf8Encoding;
+    }
+
+    if (!Console.IsInputRedirected)
+    {
+        Console.InputEncoding = utf8Encoding;
+    }
 }
