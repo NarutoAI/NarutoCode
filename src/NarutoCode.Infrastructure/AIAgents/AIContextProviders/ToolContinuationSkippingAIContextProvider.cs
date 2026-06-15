@@ -37,13 +37,18 @@ public sealed class ToolContinuationSkippingAiContextProvider : AIContextProvide
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
+        var messages = context.AIContext.Messages?.ToList();
         var aiContext=await _innerProvider.InvokingAsync(context, cancellationToken);
         //如果存在工具审批的话就不允许拼接 message
-        if (ContainsToolContinuationContent(context.AIContext.Messages))
+        if (ContainsToolContinuationContent(messages))
         {
-            aiContext.Messages = [];
+            return new AIContext
+            {
+                Instructions = aiContext.Instructions,
+                Messages = messages,
+                Tools = aiContext.Tools
+            };
         }
-
         return aiContext;
     }
 
