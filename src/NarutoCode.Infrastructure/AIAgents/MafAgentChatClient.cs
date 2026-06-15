@@ -265,7 +265,7 @@ public class MafAgentChatClient : IAgentChatClient
                             toolApprovalRequestContent));
                 }
 
-                continue;
+                yield break;
             }
 
             var errorContent = item.Contents?.OfType<ErrorContent>().FirstOrDefault();
