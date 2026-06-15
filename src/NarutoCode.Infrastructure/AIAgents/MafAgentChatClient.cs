@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using NarutoCode.Application.Agents;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
@@ -21,17 +22,19 @@ public class MafAgentChatClient : IAgentChatClient
 
     private readonly IConversationRepository _conversationRepository;
 
+    private readonly ILogger<MafAgentChatClient> _logger;
 
     /// <summary>
     /// 初始化 <see cref="MafAgentChatClient" /> 实例。
     /// </summary>
     /// <param name="agentFactory">Agent 工厂。</param>
     public MafAgentChatClient(IAgentFactory agentFactory,
-        IConversationRepository conversationRepository)
+        IConversationRepository conversationRepository, ILogger<MafAgentChatClient> logger)
     {
         ArgumentNullException.ThrowIfNull(agentFactory);
 
         _conversationRepository = conversationRepository;
+        _logger = logger;
         _agent = agentFactory.Create();
     }
 
@@ -189,6 +192,7 @@ public class MafAgentChatClient : IAgentChatClient
 
         if (initializationException is not null)
         {
+            _logger.LogError(initializationException,"Agent 会话初始化失败");
             yield return new AgentMessage(
                 AgentMessageType.Error,
                 $"Agent 会话初始化失败：{initializationException.Message}");
@@ -229,6 +233,7 @@ public class MafAgentChatClient : IAgentChatClient
 
             if (streamingException is not null)
             {
+                _logger.LogError(exception:streamingException,"Agent 执行失败");
                 yield return new AgentMessage(
                     AgentMessageType.Error,
                     $"Agent 执行失败：{streamingException.Message}");

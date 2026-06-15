@@ -140,7 +140,7 @@ public class AgentFactory(
                 AIContextProviders =
                 [
                     skillsProvider,
-                    new TaskProvider(),
+                    ToolContinuationSkippingAiContextProvider.Wrap( new TaskProvider()),
                     new SvgRenderProvider(workspaceContextAccessor.Current.WorkingDirectory),
                     new FileAccessProvider(
                         new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),

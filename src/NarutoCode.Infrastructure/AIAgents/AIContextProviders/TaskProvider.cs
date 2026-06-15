@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -99,6 +100,7 @@ public class TaskProvider : AIContextProvider
 
     private readonly ProviderSessionState<TaskAgentTaskState> _sessionState;
     private AITool[]? _tools;
+
     public TaskProvider()
     {
         this._sessionState = new ProviderSessionState<TaskAgentTaskState>(
@@ -112,13 +114,43 @@ public class TaskProvider : AIContextProvider
         var aiContext = new AIContext
         {
             Instructions = Instructions,
-            Tools = this._tools ??= this.CreateTools(context.Session),
+            Tools = this._tools ??= this.CreateTools(),
+            Messages = [new ChatMessage(ChatRole.User, FormatTaskListMessage())]
         };
         return ValueTask.FromResult(aiContext);
     }
 
+    /// <summary>
+    /// 获取任务集合
+    /// </summary>
+    /// <returns></returns>
+    private string FormatTaskListMessage()
+    {
+        var taskState = GetTaskState();
+        //获取没有完成的任务
+        var tasks = taskState.Items.Where(a=>a.Status is TaskAgentTaskStatus.Pending or TaskAgentTaskStatus.InProgress).ToList();
+        if (tasks is not {Count:>0})
+        {
+            return "### Current Task List\n- none yet";
+        }
+        var sb = new StringBuilder("### Current Task List\n");
 
-    private AITool[] CreateTools(AgentSession? session)
+        foreach (var task in tasks)
+        {
+            sb.Append($"- {task.Id} [{task.Status.ToString()}] {task.Subject}");
+            if (!string.IsNullOrWhiteSpace(task.Description))
+            {
+                sb.Append($": {task.Description}");
+            }
+
+            sb.AppendLine();
+        }
+        
+        return sb.ToString();
+    }
+
+
+    private AITool[] CreateTools()
     {
         return
         [
@@ -288,7 +320,9 @@ public class TaskProvider : AIContextProvider
                 Success = deleted,
                 TaskId = normalizedTaskId,
                 UpdatedFields = deleted ? ["deleted"] : [],
-                StatusChange = deleted ? new TaskStatusChangeToolResult {From = existingTask.ToWireStatus(), To = "deleted"} : null,
+                StatusChange = deleted
+                    ? new TaskStatusChangeToolResult {From = existingTask.ToWireStatus(), To = "deleted"}
+                    : null,
                 ErrorMessage = deleted ? null : "Failed to delete task."
             });
         }
@@ -334,7 +368,8 @@ public class TaskProvider : AIContextProvider
             UpdatedFields = updatedFields.ToArray(),
             StatusChange = parsedStatus is null
                 ? null
-                : new TaskStatusChangeToolResult {From = existingTask.ToWireStatus(), To = ToWireStatus(parsedStatus.Value)},
+                : new TaskStatusChangeToolResult
+                    {From = existingTask.ToWireStatus(), To = ToWireStatus(parsedStatus.Value)},
             Task = updatedTask is null ? null : TaskDetailedToolResult.FromTask(updatedTask),
             Message = updatedFields.Count == 0
                 ? $"Task #{normalizedTaskId} unchanged."
@@ -404,12 +439,18 @@ public class TaskProvider : AIContextProvider
     {
         return value switch
         {
-            TaskCreateToolResult result => JsonSerializer.Serialize(result, AIContentJsonSerializerContext.Default.TaskCreateToolResult),
-            TaskGetToolResult result => JsonSerializer.Serialize(result, AIContentJsonSerializerContext.Default.TaskGetToolResult),
-            TaskListToolResult result => JsonSerializer.Serialize(result, AIContentJsonSerializerContext.Default.TaskListToolResult),
-            TaskUpdateToolResult result => JsonSerializer.Serialize(result, AIContentJsonSerializerContext.Default.TaskUpdateToolResult),
-            TaskStopToolResult result => JsonSerializer.Serialize(result, AIContentJsonSerializerContext.Default.TaskStopToolResult),
-            TaskToolResult result => JsonSerializer.Serialize(result, AIContentJsonSerializerContext.Default.TaskToolResult),
+            TaskCreateToolResult result => JsonSerializer.Serialize(result,
+                AIContentJsonSerializerContext.Default.TaskCreateToolResult),
+            TaskGetToolResult result => JsonSerializer.Serialize(result,
+                AIContentJsonSerializerContext.Default.TaskGetToolResult),
+            TaskListToolResult result => JsonSerializer.Serialize(result,
+                AIContentJsonSerializerContext.Default.TaskListToolResult),
+            TaskUpdateToolResult result => JsonSerializer.Serialize(result,
+                AIContentJsonSerializerContext.Default.TaskUpdateToolResult),
+            TaskStopToolResult result => JsonSerializer.Serialize(result,
+                AIContentJsonSerializerContext.Default.TaskStopToolResult),
+            TaskToolResult result => JsonSerializer.Serialize(result,
+                AIContentJsonSerializerContext.Default.TaskToolResult),
             _ => throw new InvalidOperationException($"Unsupported task tool result type: {typeof(TValue).FullName}.")
         };
     }
