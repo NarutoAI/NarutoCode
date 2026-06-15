@@ -159,10 +159,8 @@ internal sealed class ChatScreenRenderer(
     {
         return new Rows(
             new Markup($"[bold {Palette.Ink}]Start with intent, not commands.[/]"),
-            new Markup($"[{Palette.Muted}]Ask NarutoCode to implement, debug, refactor, review, or explain code.[/]"),
-            new Text(string.Empty),
-            new Markup(
-                $"[{Palette.Accent}]@file[/] [{Palette.Muted}]attach context[/]   [{Palette.Secondary}]/workflow[/] [{Palette.Muted}]guided actions[/]   [{Palette.Warning}]?[/] [{Palette.Muted}]shortcuts[/]"));
+            new Markup($"[{Palette.Muted}]Ask NarutoCode to implement, debug, refactor, review, or explain code.[/]")
+            );
     }
 
     private IRenderable CreateMessageCard(ChatMessage message, bool cacheMarkdown, bool isWaitingAssistantMessage)
