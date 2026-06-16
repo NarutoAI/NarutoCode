@@ -66,9 +66,10 @@ public class PersistenceChatHistoryProvider(
                 responseMessages.Add(newItem);
             }
         }
-        
+        //过滤请求消息
+        var requestMessages =FilteringMessage(context.RequestMessages);
         //维护内存中的消息 这里不用 responseMessages 是因为responseMessages里面的ToolApprovalRequestContent无法被OpenAIClient识别成正确的工具调用
-        var newMessages = context.RequestMessages
+        var newMessages = requestMessages
             .Concat(context.ResponseMessages??[])
             .ToList();
         state.Messages.AddRange(newMessages);
@@ -76,13 +77,38 @@ public class PersistenceChatHistoryProvider(
         if (persistenceHandler is not null)
         {
             await persistenceHandler.PersistAsync(
-                new ChatHistoryPersistenceContext(state.SessionId, context.RequestMessages
+                new ChatHistoryPersistenceContext(state.SessionId,context.RequestMessages 
                     .Concat(responseMessages)
                     .ToList(), state.TotalUsage),
                 cancellationToken);
         }
     }
 
+    /// <summary>
+    /// 过滤消息
+    /// </summary>
+    /// <param name="messages"></param>
+    /// <returns></returns>
+    private static List<ChatMessage> FilteringMessage(IEnumerable<ChatMessage> messages)
+    {
+        var chatMessages = new List<ChatMessage>();
+        foreach (var message in messages)
+        {
+            //过滤掉从AgentRequestMessageSourceType.AIContextProvider的输入消息，这些消息不需要进行存储，因为每轮对话都会读取 同时减少历史消息的token成本
+            if (message.AdditionalProperties != null
+                && message.AdditionalProperties.TryGetValue(
+                    AgentRequestMessageSourceAttribution.AdditionalPropertiesKey, out var messageSourceAttribution)
+                && messageSourceAttribution is AgentRequestMessageSourceAttribution typedMessageSourceAttribution
+                && typedMessageSourceAttribution.SourceType == AgentRequestMessageSourceType.AIContextProvider)
+            {
+                continue;
+            }
+
+            chatMessages.Add(message);
+        }
+
+        return chatMessages;
+    }
     /// <summary>Composes an approval request ID from a function call ID.</summary>
     private static string ComposeApprovalRequestId(string callId) => $"ficc_{callId}";
 

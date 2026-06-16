@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Entities;
@@ -64,7 +65,7 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
             ConversationId = conversationId,
             Role = chatMessage.Role.Value,
 #pragma warning disable MEAI001
-            MessageType = GetMessageType(chatMessage.Contents),
+            MessageType = GetMessageTypeWithChatMessage(chatMessage),
             Visibility = GetMessageVisibility(chatMessage),
             Content = chatMessage.Text,
             ModelContent = AIContentJsonSerializerContext.SerializeContents(chatMessage.Contents)
@@ -166,6 +167,20 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         return propertyValue is string stringValue && bool.TryParse(stringValue, out value);
     }
 
+    private static AgentMessageType GetMessageTypeWithChatMessage(ChatMessage message)
+    {
+        //AIContextProvider 的来源直接为临时消息
+        if (message.AdditionalProperties != null
+            && message.AdditionalProperties.TryGetValue(
+                AgentRequestMessageSourceAttribution.AdditionalPropertiesKey, out var messageSourceAttribution)
+            && messageSourceAttribution is AgentRequestMessageSourceAttribution typedMessageSourceAttribution
+            && typedMessageSourceAttribution.SourceType == AgentRequestMessageSourceType.AIContextProvider)
+        {
+            return AgentMessageType.Temporary;
+        }
+
+        return GetMessageType(message.Contents);
+    }
     /// <summary>
     /// 根据 AI 内容集合判断消息类型。
     /// </summary>

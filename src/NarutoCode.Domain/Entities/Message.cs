@@ -45,11 +45,7 @@ public class Message
     /// 模型内容
     /// </summary>
     public string ModelContent { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 工具调用标识，用于恢复工具审批请求和审批响应的关联。
-    /// </summary>
-    public string ToolApprovalContent { get; set; } = string.Empty;
+    
 
     /// <summary>
     /// 消息创建时间

@@ -302,7 +302,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             """
             SELECT "Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility"
             FROM "Messages"
-            WHERE "ConversationId" = $conversationId
+            WHERE "ConversationId" = $conversationId 
               AND "Visibility" = $visibility
               AND "MessageType" IN ($contentType, $thinkingType, $approvalType, $toolCallType,$errorType)
             ORDER BY "CreatedAt", "Id";
@@ -313,6 +313,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             FROM "Messages"
             WHERE "ConversationId" = $conversationId
               AND "Visibility" = $visibility
+             AND "MessageType"!= $temporary
             ORDER BY "CreatedAt", "Id";
             """;
 
@@ -325,6 +326,10 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             AddParameter(command, "$approvalType", (int) AgentMessageType.ToolApprovalRequest);
             AddParameter(command, "$toolCallType", (int) AgentMessageType.ToolCall);
             AddParameter(command, "$errorType", (int) AgentMessageType.Error);
+        }
+        else
+        {
+            AddParameter(command, "temporary", (int) AgentMessageType.Temporary);
         }
 
         var messages = new List<Message>();

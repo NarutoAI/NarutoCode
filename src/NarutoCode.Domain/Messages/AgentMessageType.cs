@@ -43,8 +43,13 @@ public enum AgentMessageType
     /// </summary>
     Usage,
     /// <summary>
+    /// 临时消息
+    /// </summary>
+    Temporary,
+    /// <summary>
     /// 错误
     /// </summary>
     Error,
+    
     
 }
