@@ -171,7 +171,7 @@ public class TaskProvider : AIContextProvider
     /// <param name="metadata">任务附加元数据。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("创建一个任务，用于跟踪复杂多步骤工作的进度")]
-    private Task<string> TaskCreate(
+    private string TaskCreate(
         [Description("任务标题，要求简短且可执行")] string subject,
         [Description("任务描述，说明需要完成的具体工作")] string description,
         [Description("任务执行中展示的进行时文案，例如 Running tests")]
@@ -180,17 +180,17 @@ public class TaskProvider : AIContextProvider
     {
         if (string.IsNullOrWhiteSpace(subject))
         {
-            return SerializeAsync(TaskToolResult.Error("TaskCreate requires a non-empty subject."));
+            return Serialize(TaskToolResult.Error("TaskCreate requires a non-empty subject."));
         }
 
         if (string.IsNullOrWhiteSpace(description))
         {
-            return SerializeAsync(TaskToolResult.Error("TaskCreate requires a non-empty description."));
+            return Serialize(TaskToolResult.Error("TaskCreate requires a non-empty description."));
         }
 
         var taskState = GetTaskState();
         var task = taskState.Create(subject.Trim(), description.Trim(), activeForm, metadata);
-        return SerializeAsync(new TaskCreateToolResult
+        return Serialize(new TaskCreateToolResult
         {
             Success = true,
             Task = TaskDetailedToolResult.FromTask(task),
@@ -217,11 +217,11 @@ public class TaskProvider : AIContextProvider
     /// <param name="taskId">要查询的任务 ID。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("根据任务 ID 获取任务标题、描述、状态、所有者和依赖关系")]
-    private Task<string> TaskGet([Description("要查询的任务 ID")] string taskId)
+    private string TaskGet([Description("要查询的任务 ID")] string taskId)
     {
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            return SerializeAsync(TaskToolResult.Error("TaskGet requires a non-empty taskId."));
+            return Serialize(TaskToolResult.Error("TaskGet requires a non-empty taskId."));
         }
 
         var taskState = GetTaskState();
@@ -229,10 +229,10 @@ public class TaskProvider : AIContextProvider
 
         if (task is null)
         {
-            return SerializeAsync(TaskToolResult.Error($"Task \"{taskId}\" not found."));
+            return Serialize(TaskToolResult.Error($"Task \"{taskId}\" not found."));
         }
 
-        return SerializeAsync(new TaskGetToolResult
+        return Serialize(new TaskGetToolResult
         {
             Success = true,
             Task = TaskDetailedToolResult.FromTask(task)
@@ -244,7 +244,7 @@ public class TaskProvider : AIContextProvider
     /// </summary>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("列出所有任务，包括任务 ID、标题、状态、所有者和未完成前置依赖")]
-    private Task<string> TaskList()
+    private string TaskList()
     {
         var taskState = GetTaskState();
         var tasks = taskState.Items;
@@ -253,7 +253,7 @@ public class TaskProvider : AIContextProvider
             .Select(task => task.Id)
             .ToHashSet(StringComparer.Ordinal);
 
-        return SerializeAsync(new TaskListToolResult
+        return Serialize(new TaskListToolResult
         {
             Success = true,
             Total = tasks.Count,
@@ -281,7 +281,7 @@ public class TaskProvider : AIContextProvider
     /// <param name="error">任务错误信息，供 TaskOutput 读取。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("更新任务状态、标题、描述、所有者、依赖、元数据或输出；status=deleted 表示删除任务")]
-    private Task<string> TaskUpdate(
+    private string TaskUpdate(
         [Description("要更新的任务 ID")] string taskId,
         [Description("新的任务标题")] string? subject = null,
         [Description("新的任务描述")] string? description = null,
@@ -301,7 +301,7 @@ public class TaskProvider : AIContextProvider
     {
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            return SerializeAsync(TaskToolResult.Error("TaskUpdate requires a non-empty taskId."));
+            return Serialize(TaskToolResult.Error("TaskUpdate requires a non-empty taskId."));
         }
 
         var taskState = GetTaskState();
@@ -309,13 +309,13 @@ public class TaskProvider : AIContextProvider
         var existingTask = taskState.Get(normalizedTaskId);
         if (existingTask is null)
         {
-            return SerializeAsync(TaskToolResult.Error("Task not found.", normalizedTaskId));
+            return Serialize(TaskToolResult.Error("Task not found.", normalizedTaskId));
         }
 
         if (IsDeletedStatus(status))
         {
             var deleted = taskState.Delete(normalizedTaskId);
-            return SerializeAsync(new TaskUpdateToolResult
+            return Serialize(new TaskUpdateToolResult
             {
                 Success = deleted,
                 TaskId = normalizedTaskId,
@@ -329,7 +329,7 @@ public class TaskProvider : AIContextProvider
 
         if (!TryParseStatus(status, out var parsedStatus, out var statusError))
         {
-            return SerializeAsync(TaskToolResult.Error(statusError, normalizedTaskId));
+            return Serialize(TaskToolResult.Error(statusError, normalizedTaskId));
         }
 
         var updatedFields = new List<string>();
@@ -361,7 +361,7 @@ public class TaskProvider : AIContextProvider
         }
 
         updatedTask = taskState.Get(normalizedTaskId) ?? updatedTask;
-        return SerializeAsync(new TaskUpdateToolResult
+        return Serialize(new TaskUpdateToolResult
         {
             Success = true,
             TaskId = normalizedTaskId,
@@ -384,11 +384,11 @@ public class TaskProvider : AIContextProvider
     /// <param name="taskId">要停止的任务 ID。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("停止一个 pending 或 in_progress 任务，并将其状态标记为 stopped")]
-    private Task<string> TaskStop([Description("要停止的任务 ID")] string taskId)
+    private string TaskStop([Description("要停止的任务 ID")] string taskId)
     {
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            return SerializeAsync(TaskToolResult.Error("TaskStop requires a non-empty taskId."));
+            return Serialize(TaskToolResult.Error("TaskStop requires a non-empty taskId."));
         }
 
         var taskState = GetTaskState();
@@ -396,12 +396,12 @@ public class TaskProvider : AIContextProvider
         var existingTask = taskState.Get(normalizedTaskId);
         if (existingTask is null)
         {
-            return SerializeAsync(TaskToolResult.Error($"Task \"{normalizedTaskId}\" not found."));
+            return Serialize(TaskToolResult.Error($"Task \"{normalizedTaskId}\" not found."));
         }
 
         if (existingTask.Status == TaskAgentTaskStatus.Completed)
         {
-            return SerializeAsync(TaskToolResult.Error(
+            return Serialize(TaskToolResult.Error(
                 $"Task {normalizedTaskId} is already completed and cannot be stopped.",
                 normalizedTaskId));
         }
@@ -412,7 +412,7 @@ public class TaskProvider : AIContextProvider
             task.Output = AppendOutput(task.Output, "Task stopped by TaskStop.");
         });
 
-        return SerializeAsync(new TaskStopToolResult
+        return Serialize(new TaskStopToolResult
         {
             Success = true,
             Message = $"Successfully stopped task: {normalizedTaskId}",
@@ -464,17 +464,7 @@ public class TaskProvider : AIContextProvider
             ? appendedOutput
             : $"{currentOutput.TrimEnd()}{Environment.NewLine}{appendedOutput}";
     }
-
-
-    /// <summary>
-    /// 序列化工具结果并包装为 Task。
-    /// </summary>
-    private static Task<string> SerializeAsync<TValue>(TValue value)
-    {
-        return Task.FromResult(Serialize(value));
-    }
-
-
+    
     /// <summary>
     /// 判断状态字符串是否表示删除任务。
     /// </summary>
