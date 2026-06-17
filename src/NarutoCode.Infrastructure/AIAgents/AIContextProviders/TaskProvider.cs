@@ -21,6 +21,7 @@ public class TaskProvider : AIContextProvider
     /// </summary>
     private const string Instructions =
         """
+        
         你可以使用 Task 系列工具维护当前会话的结构化任务列表。任务列表用于跟踪复杂、多步骤、需要持续推进的工作，让用户能够理解当前进度；它是会话状态，不是新的用户请求。始终优先处理用户最新指令，只有在任务状态确实变化时才更新任务。
 
         ## 总体规则

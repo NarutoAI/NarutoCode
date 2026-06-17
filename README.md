@@ -131,7 +131,31 @@ narutocode /path/to/workspace
 
 下次启动时会优先使用这个 provider。如果 `settings.json` 没有有效 provider，则自动使用 `llms` 数组的第一个配置。
 
-## 4. 输入任务
+## 4. 配置推理强度
+
+可以使用 `/effort` 查看和切换当前推理强度。
+
+查看当前 effort 和可选列表：
+
+```text
+/effort
+```
+
+切换到指定 effort：
+
+```text
+/effort high
+```
+
+可选值为 `low`、`medium`、`high`、`xhigh`。切换成功后，NarutoCode 会把当前 effort 写入：
+
+```text
+~/.narutocode/settings.json
+```
+
+下次启动时会优先使用这个 effort。如果 `settings.json` 没有配置 effort，则默认使用 `medium`。
+
+## 5. 输入任务
 
 启动后可以直接输入自然语言任务，例如：
 
@@ -151,7 +175,7 @@ narutocode /path/to/workspace
 运行测试并修复失败的问题
 ```
 
-## 5. 图片输入
+## 6. 图片输入
 
 如果需要让 Agent 分析图片，可以使用 `/image`：
 

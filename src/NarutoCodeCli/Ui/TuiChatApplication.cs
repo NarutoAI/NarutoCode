@@ -1,6 +1,7 @@
-﻿using NarutoCode.Domain.Configurations;
+using NarutoCode.Domain.Configurations;
 using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 
@@ -81,6 +82,13 @@ internal sealed class TuiChatApplication(
             if (!requiresToolApproval && IsProviderCommand(input))
             {
                 HandleProviderCommand(input);
+                screenRenderer.Render(sessionState);
+                continue;
+            }
+
+            if (!requiresToolApproval && IsEffortCommand(input))
+            {
+                HandleEffortCommand(input);
                 screenRenderer.Render(sessionState);
                 continue;
             }
@@ -187,6 +195,66 @@ internal sealed class TuiChatApplication(
     {
         return input.Equals("/provider", StringComparison.OrdinalIgnoreCase)
                || input.StartsWith("/provider ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 处理推理强度切换命令。
+    /// </summary>
+    /// <param name="input">用户输入。</param>
+    private void HandleEffortCommand(string input)
+    {
+        var arguments = ChatPromptReader.SplitArguments(input);
+        var assistantMessage = ChatMessage.CreateAssistant();
+
+        if (arguments.Count == 1)
+        {
+            assistantMessage.Append(new AgentMessage(
+                AgentMessageType.Content,
+                CreateEffortStatusContent()));
+            sessionState.AddMessage(assistantMessage);
+            return;
+        }
+
+        if (!TryParseEffort(arguments[1], out var effort))
+        {
+            assistantMessage.Append(new AgentMessage(
+                AgentMessageType.Error,
+                $"切换 effort 失败：不支持的推理强度 {arguments[1]}。\n\n{CreateEffortStatusContent()}"));
+            sessionState.AddMessage(assistantMessage);
+            return;
+        }
+
+        llmSettingsService.SwitchEffort(effort);
+        assistantMessage.Append(new AgentMessage(
+            AgentMessageType.Content,
+            $"已切换当前 effort：{FormatEffort(llmSettingsService.CurrentEffort)}"));
+        sessionState.AddMessage(assistantMessage);
+    }
+
+    private string CreateEffortStatusContent()
+    {
+        var effortLines = llmSettingsService.GetAvailableEfforts().Select(effort =>
+            effort == llmSettingsService.CurrentEffort
+                ? $"- {FormatEffort(effort)}（当前）"
+                : $"- {FormatEffort(effort)}");
+
+        return $"当前 effort：{FormatEffort(llmSettingsService.CurrentEffort)}\n\n可用 effort：\n{string.Join(Environment.NewLine, effortLines)}\n\n使用 /effort <low|medium|high|xhigh> 切换。";
+    }
+
+    private static bool TryParseEffort(string input, out LlmEffort effort)
+    {
+        return Enum.TryParse(input, ignoreCase: true, out effort);
+    }
+
+    private static string FormatEffort(LlmEffort effort)
+    {
+        return effort.ToString().ToLowerInvariant();
+    }
+
+    private static bool IsEffortCommand(string input)
+    {
+        return input.Equals("/effort", StringComparison.OrdinalIgnoreCase)
+               || input.StartsWith("/effort ", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<SessionLauncherResult> SelectConversationAsync(CancellationToken cancellationToken)

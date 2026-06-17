@@ -19,14 +19,6 @@ internal sealed class OpenAIResponsesClientFactory : IChatClientFactory
             .GetResponsesClient()
             .AsIChatClientWithStoredOutputDisabled(configuration.Model, includeReasoningEncryptedContent: true)
             .AsBuilder()
-            .ConfigureOptions(options =>
-            {
-                options.Reasoning = new ReasoningOptions
-                {
-                    Effort = ReasoningEffort.Medium, //todo 增加异步上下文控制 强度 
-                    Output = ReasoningOutput.Summary
-                };
-            })
             .Build();
 #pragma warning restore MAAI001
 #pragma warning restore OPENAI001

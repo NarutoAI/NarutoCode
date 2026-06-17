@@ -52,6 +52,7 @@ public class AgentFactory(
                 AgentModeProviderOptions = new AgentModeProviderOptions
                 {
                     Instructions = """
+                                   
                                    ## Agent Mode
                                    
                                    - 您可以以不同的模式进行操作。根据您所处的模式，需要遵循不同的流程。
@@ -69,6 +70,7 @@ public class AgentFactory(
                 },
                 HarnessInstructions =
                     $"""
+                     
                        你是一位强大的软件架构师和产品专家
                        
                        ## 个人信息
@@ -122,7 +124,6 @@ public class AgentFactory(
                         MaxOutputTokens,
                     Reasoning = new()
                     {
-                        Effort = ReasoningEffort.Medium,
                         Output = ReasoningOutput.Summary,
                     },
                     Tools =

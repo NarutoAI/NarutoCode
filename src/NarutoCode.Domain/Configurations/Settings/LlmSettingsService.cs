@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.LlmContextAccessors;
 
 namespace NarutoCode.Domain.Configurations.Settings;
@@ -25,10 +26,18 @@ public sealed class LlmSettingsService : ILlmSettingsService
 
     public LlmConfiguration CurrentLlm => ResolveLlm(CurrentProvider);
 
+    public LlmEffort CurrentEffort =>
+        _llmContextAccessor.Current?.Effort ?? ReadSettings().Effort;
+
 
     public IReadOnlyList<string> GetAvailableProviders()
     {
         return AppData.Config.Llms.Select(item => item.Provider).ToArray();
+    }
+
+    public IReadOnlyList<LlmEffort> GetAvailableEfforts()
+    {
+        return Enum.GetValues<LlmEffort>();
     }
 
     /// <summary>
@@ -53,7 +62,20 @@ public sealed class LlmSettingsService : ILlmSettingsService
         var settings = ReadSettings();
         settings.Provider = llm.Provider;
         SaveSetting(settings);
-        SetCurrentProvider(llm.Provider);
+        SetCurrentContext(settings.Provider, settings.Effort);
+    }
+
+    /// <summary>
+    /// 切换推理强度。
+    /// </summary>
+    /// <param name="effort">目标推理强度。</param>
+    public void SwitchEffort(LlmEffort effort)
+    {
+        var settings = ReadSettings();
+        settings.Provider = ValidProvider(settings.Provider);
+        settings.Effort = effort;
+        SaveSetting(settings);
+        SetCurrentContext(settings.Provider, settings.Effort);
     }
 
     private void InitializeSettings()
@@ -61,7 +83,7 @@ public sealed class LlmSettingsService : ILlmSettingsService
         var settings = ReadSettings();
         settings.Provider = ValidProvider(settings.Provider);
         SaveSetting(settings);
-        SetCurrentProvider(settings.Provider);
+        SetCurrentContext(settings.Provider, settings.Effort);
     }
 
     private AppSettings ReadSettings()
@@ -128,8 +150,8 @@ public sealed class LlmSettingsService : ILlmSettingsService
             AppConfigurationContext.Default.AppSettings);
     }
 
-    private void SetCurrentProvider(string provider)
+    private void SetCurrentContext(string provider, LlmEffort effort)
     {
-        _llmContextAccessor.Current = new LlmContext {Provider = provider};
+        _llmContextAccessor.Current = new LlmContext {Provider = provider, Effort = effort};
     }
 }
