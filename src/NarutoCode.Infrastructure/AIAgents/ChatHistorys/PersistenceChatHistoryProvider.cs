@@ -10,8 +10,8 @@ namespace NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 /// 聊天记录持久化提供者
 /// </summary>
 public class PersistenceChatHistoryProvider(
-    IChatHistoryPersistenceHandler? persistenceHandler,
-    IChatReducer chatReducer)
+    IChatHistoryPersistenceHandler? persistenceHandler
+    ,CompactionStrategyCoordinator compactionStrategyCoordinator)
     : ChatHistoryProvider
 {
     //设置状态信息
@@ -29,7 +29,7 @@ public class PersistenceChatHistoryProvider(
     {
         var state = this._sessionState.GetOrInitializeState(context.Session);
         //消息裁剪
-        state.Messages = (await chatReducer.ReduceAsync(state.Messages, cancellationToken)).ToList();
+        state.Messages = (await compactionStrategyCoordinator.Create().ReduceAsync(state.Messages, cancellationToken)).ToList();
         return state.Messages;
     }
 

@@ -1,28 +1,24 @@
 using System.Runtime.InteropServices;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.Compaction;
 using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NarutoCode.Domain;
-using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
+using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 using NarutoCode.Infrastructure.Tools;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
 public class AgentFactory(
-    IServiceProvider serviceProvider,
-    ILlmSettingsService llmSettingsService,
     IWorkspaceContextAccessor workspaceContextAccessor,
-    IChatHistoryPersistenceHandler chatHistoryPersistenceHandler,ILoggerFactory loggerFactory)
+    IChatHistoryPersistenceHandler chatHistoryPersistenceHandler,ILoggerFactory loggerFactory,CompactionStrategyCoordinator compactionStrategyCoordinator,DynamicChatClient dynamicChatClient)
     : IAgentFactory, IAsyncDisposable
 {
-    const int MaxOutputTokens = 128_000;
+    internal const int MaxOutputTokens = 128_000;
 
     /// <summary>
     /// 本地shell工具
@@ -43,21 +39,15 @@ public class AgentFactory(
                 ProjectConstant.SkillsDirectory
             ]);
 
-        var llm = llmSettingsService.CurrentLlm;
-        var chatClient = serviceProvider.GetRequiredKeyedService<IChatClient>(llm.Provider);
 
-        //上下文窗口裁剪
-        var compactionStrategy = new ContextWindowCompactionStrategy(
-            maxContextWindowTokens: llm.MaxContextWindowTokens,
-            maxOutputTokens: MaxOutputTokens);
+        //持久化
         var persistenceChatHistoryProvider = new PersistenceChatHistoryProvider(
-            chatHistoryPersistenceHandler,
-            compactionStrategy.AsChatReducer());
+            chatHistoryPersistenceHandler,compactionStrategyCoordinator);
 
         var memoryPath = Path.Combine(workspaceContextAccessor.Current.WorkingDirectory, ProjectConstant.ConfigurationDirectory, "memory");
         //校验工作目录是否存在AGENTS.md文档
         var agentMd = AgentsMdAsync(workspaceContextAccessor.Current.WorkingDirectory);
-        return chatClient.AsHarnessAgent(new HarnessAgentOptions
+        return dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
             {
                 AgentModeProviderOptions = new AgentModeProviderOptions
                 {
@@ -146,7 +136,7 @@ public class AgentFactory(
                 AIContextProviders =
                 [
                     skillsProvider,
-                    ToolContinuationSkippingAiContextProvider.Wrap( new TaskProvider()),
+                    ToolContinuationSkippingAiContextProvider.Wrap(new TaskProvider()),
                     new SvgRenderProvider(workspaceContextAccessor.Current.WorkingDirectory),
                     new FileAccessProvider(
                         new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
@@ -192,8 +182,8 @@ public class AgentFactory(
                 ],
                 DisableTodoProvider = true,
                 DisableFileAccess = true, //禁用自带的文件处理
-                MaxContextWindowTokens = llm.MaxContextWindowTokens,
-                MaxOutputTokens = MaxOutputTokens
+                DisableCompaction =  true,//上面的持久化存储设置了压缩
+                MaxOutputTokens =  MaxOutputTokens,
                 //文件处理
                 // FileAccessStore = new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
             },loggerFactory: loggerFactory);

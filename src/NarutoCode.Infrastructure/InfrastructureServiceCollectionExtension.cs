@@ -34,7 +34,10 @@ public static class InfrastructureServiceCollectionExtension
             services.AddKeyedSingleton<IChatClientFactory, OpenAIResponsesClientFactory>(
                 nameof(LlmProtocol.OpenAIResponses));
             services.AddKeyedSingleton<IChatClientFactory, AnthropicChatClientFactory>(nameof(LlmProtocol.Anthropic));
-            
+
+            //注册动态聊天客户端
+            services.AddSingleton<DynamicChatClient>();
+            services.AddSingleton<CompactionStrategyCoordinator>();
             services.AddSingleton<ILlmContextAccessor, LlmContextAccessor>();
             services.AddSingleton<ILlmSettingsService, LlmSettingsService>();
             foreach (var llm in AppData.Config.Llms)
