@@ -22,10 +22,7 @@ public class DynamicChatClient(IServiceProvider serviceProvider, ILlmSettingsSer
     {
         if (!disposing)
             return;
-        foreach (var provider in llmSettingsService.GetAvailableProviders())
-        {
-            serviceProvider.GetRequiredKeyedService<IChatClient>(provider).Dispose();
-        }
+
     }
 
     public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
