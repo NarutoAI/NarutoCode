@@ -16,6 +16,10 @@ public enum TaskAgentTaskStatus
     InProgress,
 
     /// <summary>
+    /// 等待确认
+    /// </summary>
+    WaitingAck,
+    /// <summary>
     /// 任务已完成。
     /// </summary>
     Completed,

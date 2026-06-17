@@ -109,6 +109,12 @@ internal sealed class TaskListToolResult : TaskToolResult
     public int Stopped { get; init; }
 
     /// <summary>
+    /// 等待用户确认
+    /// </summary>
+    [JsonPropertyName("waiting_ack")]
+    public int WaitingAck { get; set; }
+
+    /// <summary>
     /// 任务摘要列表。
     /// </summary>
     [JsonPropertyName("tasks")]

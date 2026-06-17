@@ -29,6 +29,7 @@ public class TaskProvider : AIContextProvider
         - 简单任务不要创建任务：单一步骤、纯问答、信息解释、很快能完成的直接操作，不需要任务列表。
         - 创建任务前先检查现有任务，避免重复创建同一目标的任务。
         - 开始执行某个任务前，先用 TaskUpdate 将其标记为 in_progress；完成后再标记为 completed。
+        - 如果一个任务需要等待用户确认的话，就需要用 TaskUpdate 将其标记为 waiting_ack ；下次执行这个任务的时候还是先用 TaskUpdate 将其标记为 in_progress；完成后再标记为 completed。
         - 只有完全完成任务时才能标记 completed；如果测试失败、实现不完整、存在未解决错误、缺少必要文件或依赖，不得标记 completed，应保持 in_progress 或创建阻塞任务。
         - 任务依赖必须显式维护：当前任务阻塞其它任务时使用 addBlocks；当前任务依赖其它任务时使用 addBlockedBy。
         - 删除任务是永久操作，仅当任务创建错误、已不相关或被明确取代时使用 deleted。
@@ -76,11 +77,13 @@ public class TaskProvider : AIContextProvider
         状态流转：
         - pending：尚未开始。
         - in_progress：正在执行；开始工作前必须设置。
+        - waiting_ack：表示当前任务需要停留下来等待用户确认。
         - completed：已经完整完成；只有验证通过或确认无需验证时才能设置。
         - deleted：永久删除任务。
 
         使用规则：
         - 开始任务：设置 status 为 in_progress，可同时设置 activeForm。
+        - 等待用户确认：设置 status 为 waiting_ack
         - 完成任务：确认工作完整、错误已解决、必要验证已完成后设置 completed。
         - 遇到阻塞：不要标记 completed；保留 in_progress，并创建或关联描述阻塞事项的任务。
         - 更新 metadata：合并指定键；值为 null 表示删除该键。
@@ -137,7 +140,7 @@ public class TaskProvider : AIContextProvider
 
         foreach (var task in tasks)
         {
-            sb.Append($"- {task.Id} [{task.Status.ToString()}] {task.Subject}");
+            sb.Append($"- {task.Id} [{task.ToWireStatus()}] {task.Subject}");
             if (!string.IsNullOrWhiteSpace(task.Description))
             {
                 sb.Append($": {task.Description}");
@@ -260,6 +263,7 @@ public class TaskProvider : AIContextProvider
             Pending = tasks.Count(task => task.Status == TaskAgentTaskStatus.Pending),
             InProgress = tasks.Count(task => task.Status == TaskAgentTaskStatus.InProgress),
             Completed = tasks.Count(task => task.Status == TaskAgentTaskStatus.Completed),
+            WaitingAck =  tasks.Count(task => task.Status == TaskAgentTaskStatus.WaitingAck),
             Stopped = tasks.Count(task => task.Status == TaskAgentTaskStatus.Stopped),
             Tasks = tasks.Select(task => TaskListItemToolResult.FromTask(task, completedTaskIds)).ToArray()
         });
@@ -287,7 +291,7 @@ public class TaskProvider : AIContextProvider
         [Description("新的任务描述")] string? description = null,
         [Description("新的执行中展示文案，例如 Running tests")]
         string? activeForm = null,
-        [Description("新的任务状态，支持 pending、in_progress、completed、stopped、deleted")]
+        [Description("新的任务状态，支持 pending、in_progress、completed、stopped、deleted、waiting_ack")]
         string? status = null,
         [Description("当前任务阻塞的任务 ID 集合")] string[]? addBlocks = null,
         [Description("阻塞当前任务的任务 ID 集合")] string[]? addBlockedBy = null,
@@ -383,7 +387,7 @@ public class TaskProvider : AIContextProvider
     /// </summary>
     /// <param name="taskId">要停止的任务 ID。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
-    [Description("停止一个 pending 或 in_progress 任务，并将其状态标记为 stopped")]
+    [Description("停止一个 pending 或 in_progress 或者 waiting_ack 任务，并将其状态标记为 stopped")]
     private string TaskStop([Description("要停止的任务 ID")] string taskId)
     {
         if (string.IsNullOrWhiteSpace(taskId))
@@ -504,6 +508,7 @@ public class TaskProvider : AIContextProvider
         {
             "pending" => TaskAgentTaskStatus.Pending,
             "in_progress" => TaskAgentTaskStatus.InProgress,
+            "waiting_ack"=> TaskAgentTaskStatus.WaitingAck,
             "completed" => TaskAgentTaskStatus.Completed,
             "stopped" => TaskAgentTaskStatus.Stopped,
             _ => null
@@ -622,6 +627,7 @@ public class TaskProvider : AIContextProvider
         {
             TaskAgentTaskStatus.Pending => "pending",
             TaskAgentTaskStatus.InProgress => "in_progress",
+            TaskAgentTaskStatus.WaitingAck => "waiting_ack",
             TaskAgentTaskStatus.Completed => "completed",
             TaskAgentTaskStatus.Stopped => "stopped",
             _ => "unknown"
