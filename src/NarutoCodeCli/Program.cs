@@ -25,7 +25,17 @@ var workspacePath = args.FirstOrDefault() ?? Environment.CurrentDirectory;
 var workspaceContext = new WorkspaceContext(workspacePath);
 var services = new ServiceCollection();
 services.AddSingleton<IWorkspaceContextAccessor>(new CliWorkspaceContextAccessor(workspaceContext));
-await services.AddInfrastructure();
+try
+{
+    await services.AddInfrastructure();
+}
+catch (Exception e)
+{
+    AnsiConsole.WriteLine(e.Message);
+    Console.ReadKey();
+    return;
+}
+
 services.AddSingleton(chatCancellationCoordinator);
 if (OperatingSystem.IsMacOS())
 {

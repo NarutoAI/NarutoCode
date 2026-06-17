@@ -4,6 +4,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using NarutoCode.Application.Agents;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
@@ -13,31 +14,11 @@ namespace NarutoCode.Infrastructure.AIAgents;
 /// <summary>
 /// 基于 Microsoft Agent Framework 的 Agent 对话客户端实现。
 /// </summary>
-public class MafAgentChatClient : IAgentChatClient
+public class MafAgentChatClient(IAgentFactory agentFactory,
+    IConversationRepository conversationRepository, ILogger<MafAgentChatClient> logger,ILlmSettingsService llmSettingsService) : IAgentChatClient
 {
-    private readonly AIAgent _agent;
-
     private readonly ConcurrentDictionary<long, Lazy<Task<AgentSession>>> _agentSessions = new();
-
-
-    private readonly IConversationRepository _conversationRepository;
-
-    private readonly ILogger<MafAgentChatClient> _logger;
-
-    /// <summary>
-    /// 初始化 <see cref="MafAgentChatClient" /> 实例。
-    /// </summary>
-    /// <param name="agentFactory">Agent 工厂。</param>
-    public MafAgentChatClient(IAgentFactory agentFactory,
-        IConversationRepository conversationRepository, ILogger<MafAgentChatClient> logger)
-    {
-        ArgumentNullException.ThrowIfNull(agentFactory);
-
-        _conversationRepository = conversationRepository;
-        _logger = logger;
-        _agent = agentFactory.Create();
-    }
-
+    private readonly ConcurrentDictionary<string, AIAgent> _agents = new();
     private Task<AgentSession> GetAgentSessionAsync(ConversationSessionId sessionId)
     {
         var lazySession = _agentSessions.GetOrAdd(
@@ -66,9 +47,11 @@ public class MafAgentChatClient : IAgentChatClient
 
     private async Task<AgentSession> CreateSessionAsync(ConversationSessionId sessionId)
     {
+        var agent=_agents[llmSettingsService.CurrentProvider];
         // 读取持久化历史时必须丢弃取消或崩溃留下的半截工具调用，否则模型会因缺少工具结果拒绝继续对话。
-        var messages = await _conversationRepository.ListMessagesAsync(sessionId.Value);
-        var session = await _agent.CreateSessionAsync();
+        var messages = await conversationRepository.ListMessagesAsync(sessionId.Value);
+        //随便用哪个agent创建会话就行，因为AgentSession与agent无关,不会存储agent的状态
+        var session = await agent.CreateSessionAsync();
         var chatMessages = new List<ChatMessage>(messages.Count);
 
         foreach (var item in messages.OrderBy(a => a.Id))
@@ -172,6 +155,7 @@ public class MafAgentChatClient : IAgentChatClient
     {
         ChatMessage? chatMessage = null;
         AgentSession? agentSession = null;
+        var agent = _agents.GetOrAdd(llmSettingsService.CurrentProvider,(_)=>agentFactory.Create());
         Exception? initializationException = null;
 
         try
@@ -192,7 +176,7 @@ public class MafAgentChatClient : IAgentChatClient
 
         if (initializationException is not null)
         {
-            _logger.LogError(initializationException,"Agent 会话初始化失败");
+            logger.LogError(initializationException,"Agent 会话初始化失败");
             yield return new AgentMessage(
                 AgentMessageType.Error,
                 $"Agent 会话初始化失败：{initializationException.Message}");
@@ -201,7 +185,7 @@ public class MafAgentChatClient : IAgentChatClient
 
         var currentChatMessage = chatMessage!;
         var currentAgentSession = agentSession!;
-        await using var enumerator = _agent.RunStreamingAsync(
+        await using var enumerator = agent.RunStreamingAsync(
                 currentChatMessage,
                 currentAgentSession,
                 cancellationToken: cancellationToken)
@@ -233,7 +217,7 @@ public class MafAgentChatClient : IAgentChatClient
 
             if (streamingException is not null)
             {
-                _logger.LogError(exception:streamingException,"Agent 执行失败");
+                logger.LogError(exception:streamingException,"Agent 执行失败");
                 yield return new AgentMessage(
                     AgentMessageType.Error,
                     $"Agent 执行失败：{streamingException.Message}");
@@ -295,12 +279,12 @@ public class MafAgentChatClient : IAgentChatClient
         }
 
         //如果开启计划或者待办的话 返回允许用户审批
-        if (currentAgentSession.IsOpenPlan(_agent) || await currentAgentSession.IsOpenTodoAsync(_agent))
+        if (currentAgentSession.IsOpenPlan(agent) || await currentAgentSession.IsOpenTodoAsync(agent))
         {
             yield return new(AgentMessageType.Plan, string.Empty);
         }
         //如果存在遗留未完成的任务，就继续执行
-        else if (await currentAgentSession.IsExistsInProgressTask(_agent))
+        else if (await currentAgentSession.IsExistsInProgressTask(agent))
         {
             yield return new(AgentMessageType.RemainingTask, string.Empty);
         }

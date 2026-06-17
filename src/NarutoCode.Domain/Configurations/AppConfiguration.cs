@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace NarutoCode.Domain.Configurations;
@@ -9,6 +9,7 @@ namespace NarutoCode.Domain.Configurations;
     AllowTrailingCommas = true,
     ReadCommentHandling = JsonCommentHandling.Skip)]
 [JsonSerializable(typeof(AppConfiguration))]
+[JsonSerializable(typeof(AppSettings))]
 internal partial class AppConfigurationContext : JsonSerializerContext
 {
 }
@@ -19,9 +20,9 @@ internal partial class AppConfigurationContext : JsonSerializerContext
 public sealed class AppConfiguration
 {
     /// <summary>
-    /// LLM 模型配置。
+    /// LLM 模型配置集合，provider 必须唯一。
     /// </summary>
-    public LlmConfiguration Llm { get; set; } = new();
+    public List<LlmConfiguration> Llms { get; set; } = [];
 
     /// <summary>
     /// 系统运行配置。

@@ -3,8 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using NarutoCode.Application;
 using NarutoCode.Application.Agents;
 using NarutoCode.Domain;
+using NarutoCode.Domain.Configurations;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Enums;
+using NarutoCode.Domain.LlmContextAccessors;
 using NarutoCode.Infrastructure.AIAgents;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
@@ -31,13 +34,19 @@ public static class InfrastructureServiceCollectionExtension
             services.AddKeyedSingleton<IChatClientFactory, OpenAIResponsesClientFactory>(
                 nameof(LlmProtocol.OpenAIResponses));
             services.AddKeyedSingleton<IChatClientFactory, AnthropicChatClientFactory>(nameof(LlmProtocol.Anthropic));
-            services.AddSingleton<IChatClient>(provider =>
-                provider.GetRequiredKeyedService<IChatClientFactory>(AppData.Config.Llm.Protocol)
-                    .Create(AppData.Config.Llm)
-                    .AsBuilder()
-                    .UseListeningMessageQueue()
-                    .Build()
-                );
+            
+            services.AddSingleton<ILlmContextAccessor, LlmContextAccessor>();
+            services.AddSingleton<ILlmSettingsService, LlmSettingsService>();
+            foreach (var llm in AppData.Config.Llms)
+            {
+                services.AddKeyedSingleton<IChatClient>(llm.Provider, (provider, _) =>
+                    provider.GetRequiredKeyedService<IChatClientFactory>(llm.Protocol)
+                        .Create(llm)
+                        .AsBuilder()
+                        .UseListeningMessageQueue()
+                        .Build());
+            }
+
             services.AddSingleton<IAgentChatClient, MafAgentChatClient>();
             services.AddSingleton<IAgentFactory, AgentFactory>();
             services.AddSingleton<ConversationRepositoryCoordinator>();
@@ -64,6 +73,7 @@ public static class InfrastructureServiceCollectionExtension
         {
             //数据库初始化
             await serviceProvider.GetRequiredService<DbInitializer>().InitializeAsync();
+            serviceProvider.GetRequiredService<ILlmSettingsService>();
             RootServiceProviderLocator.Init(serviceProvider);
         }
     }

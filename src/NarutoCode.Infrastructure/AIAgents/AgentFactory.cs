@@ -3,8 +3,10 @@ using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Compaction;
 using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NarutoCode.Domain;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
@@ -14,7 +16,8 @@ using NarutoCode.Infrastructure.Tools;
 namespace NarutoCode.Infrastructure.AIAgents;
 
 public class AgentFactory(
-    IChatClient chatClient,
+    IServiceProvider serviceProvider,
+    ILlmSettingsService llmSettingsService,
     IWorkspaceContextAccessor workspaceContextAccessor,
     IChatHistoryPersistenceHandler chatHistoryPersistenceHandler,ILoggerFactory loggerFactory)
     : IAgentFactory, IAsyncDisposable
@@ -40,9 +43,12 @@ public class AgentFactory(
                 ProjectConstant.SkillsDirectory
             ]);
 
+        var llm = llmSettingsService.CurrentLlm;
+        var chatClient = serviceProvider.GetRequiredKeyedService<IChatClient>(llm.Provider);
+
         //上下文窗口裁剪
         var compactionStrategy = new ContextWindowCompactionStrategy(
-            maxContextWindowTokens: AppData.Config.Llm.MaxContextWindowTokens,
+            maxContextWindowTokens: llm.MaxContextWindowTokens,
             maxOutputTokens: MaxOutputTokens);
         var persistenceChatHistoryProvider = new PersistenceChatHistoryProvider(
             chatHistoryPersistenceHandler,
@@ -186,7 +192,7 @@ public class AgentFactory(
                 ],
                 DisableTodoProvider = true,
                 DisableFileAccess = true, //禁用自带的文件处理
-                MaxContextWindowTokens = AppData.Config.Llm.MaxContextWindowTokens,
+                MaxContextWindowTokens = llm.MaxContextWindowTokens,
                 MaxOutputTokens = MaxOutputTokens
                 //文件处理
                 // FileAccessStore = new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
@@ -197,10 +203,6 @@ public class AgentFactory(
     public async ValueTask DisposeAsync()
     {
         await _persistentShell.DisposeAsync();
-        if (chatClient is IAsyncDisposable chatClientAsyncDisposable)
-            await chatClientAsyncDisposable.DisposeAsync();
-        else
-            chatClient.Dispose();
     }
 
     private static string AgentsMdAsync(string path)

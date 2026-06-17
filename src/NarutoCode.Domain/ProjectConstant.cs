@@ -17,6 +17,11 @@ public class ProjectConstant
     /// 配置文件名称。
     /// </summary>
     public const string ConfigurationFileName = "config.json";
+
+    /// <summary>
+    /// 运行时设置文件名称。
+    /// </summary>
+    public const string SettingsFileName = "settings.json";
     
     /// <summary>
     /// 

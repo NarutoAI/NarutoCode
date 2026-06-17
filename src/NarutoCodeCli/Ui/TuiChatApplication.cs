@@ -1,4 +1,6 @@
-﻿using NarutoCode.Domain.Conversations;
+﻿using NarutoCode.Domain.Configurations;
+using NarutoCode.Domain.Configurations.Settings;
+using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 
@@ -17,7 +19,8 @@ internal sealed class TuiChatApplication(
     PendingUserMessageQueue pendingUserMessageQueue,
     QueuedChatInputReader queuedInputReader,
     SessionLauncherRenderer sessionLauncherRenderer,
-    SessionLauncherPromptReader sessionLauncherPromptReader)
+    SessionLauncherPromptReader sessionLauncherPromptReader,
+    ILlmSettingsService llmSettingsService)
 {
     private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -74,6 +77,13 @@ internal sealed class TuiChatApplication(
             {
                 break;
             }
+            //处理供应商切换
+            if (!requiresToolApproval && IsProviderCommand(input))
+            {
+                HandleProviderCommand(input);
+                screenRenderer.Render(sessionState);
+                continue;
+            }
 
             if (!TryCreateOutgoingMessage(input, requiresToolApproval, out var outgoingMessage, out var displayContent,
                     out var error))
@@ -123,6 +133,60 @@ internal sealed class TuiChatApplication(
                 cancellationCoordinator.ClearOperation(operationCancellationTokenSource);
             }
         }
+    }
+
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="input"></param>
+    private void HandleProviderCommand(string input)
+    {
+        var arguments = ChatPromptReader.SplitArguments(input);
+        var assistantMessage = ChatMessage.CreateAssistant();
+
+        if (arguments.Count == 1)
+        {
+            assistantMessage.Append(new AgentMessage(
+                AgentMessageType.Content,
+                CreateProviderStatusContent()));
+            sessionState.AddMessage(assistantMessage);
+            return;
+        }
+
+        var provider = arguments[1];
+        try
+        {
+            llmSettingsService.SwitchProvider(provider);
+            assistantMessage.Append(new AgentMessage(
+                AgentMessageType.Content,
+                $"已切换当前 provider：{llmSettingsService.CurrentProvider}"));
+        }
+        catch (InvalidOperationException exception)
+        {
+            assistantMessage.Append(new AgentMessage(
+                AgentMessageType.Error,
+                $"切换 provider 失败：{exception.Message}\n\n{CreateProviderStatusContent()}"));
+        }
+
+        sessionState.AddMessage(assistantMessage);
+    }
+
+    private string CreateProviderStatusContent()
+    {
+        var providers = llmSettingsService.GetAvailableProviders();
+        var providerLines = providers.Select(provider =>
+            string.Equals(provider, llmSettingsService.CurrentProvider, StringComparison.OrdinalIgnoreCase)
+                ? $"- {provider}（当前）"
+                : $"- {provider}");
+
+        return $"当前 provider：{llmSettingsService.CurrentProvider}\n\n可用 provider：\n{string.Join(Environment.NewLine, providerLines)}\n\n使用 /provider <provider> 切换。";
+    }
+
+    private static bool IsProviderCommand(string input)
+    {
+        return input.Equals("/provider", StringComparison.OrdinalIgnoreCase)
+               || input.StartsWith("/provider ", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<SessionLauncherResult> SelectConversationAsync(CancellationToken cancellationToken)
