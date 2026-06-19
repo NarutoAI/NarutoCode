@@ -39,6 +39,7 @@ public class CompactionStrategyCoordinator(ILlmSettingsService llmSettingsServic
         //摘要的阀值
         var summarizationTokens = (int) (inputBudgetTokens * 0.8);
 #pragma warning disable MAAI001
+        //todo 设置推理强度为none
        var compactionStrategy= new PipelineCompactionStrategy([
            new ToolResultCompactionStrategy( trigger: CompactionTriggers.TokensExceed(toolEvictionTokens)),//首先不调用大模型，只将tool的结果拼接，然后移除思考过程
            //调用摘要的压缩，将历史的消息浓缩成摘要信息，+ 保留的最近的几条消息+上面的工具压缩的
