@@ -10,6 +10,7 @@ using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.LlmContextAccessors;
 using NarutoCode.Infrastructure.AIAgents;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
+using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.ChatClients;
 using NarutoCode.Infrastructure.Stores;

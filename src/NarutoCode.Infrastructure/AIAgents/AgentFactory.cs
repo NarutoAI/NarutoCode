@@ -7,6 +7,7 @@ using NarutoCode.Domain;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
+using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 using NarutoCode.Infrastructure.Tools;

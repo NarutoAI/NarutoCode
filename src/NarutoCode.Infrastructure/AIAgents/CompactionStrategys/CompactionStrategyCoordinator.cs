@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 
-namespace NarutoCode.Infrastructure.AIAgents;
+namespace NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 
 /// <summary>
 /// 压缩策略协调
@@ -13,12 +13,12 @@ public class CompactionStrategyCoordinator(ILlmSettingsService llmSettingsServic
 {
     private static ConcurrentDictionary<string, IChatReducer> _datas = new();
 
-    public IChatReducer Create()
+    private IChatReducer Create()
     {
-        return _datas.GetOrAdd(llmSettingsService.CurrentProvider, BuildChatReducer);
+        return _datas.GetOrAdd(llmSettingsService.CurrentProvider, BuildChatReducer());
     }
 
-    private IChatReducer BuildChatReducer(string provider)
+    private IChatReducer BuildChatReducer()
     {
         //SummarizationCompactionStrategy 生成摘要压缩
         //ToolResultCompactionStrategy 工具结果 压缩，只是把工具的结果用yaml 拼接在一起，不会移除任何的用户消息
@@ -40,15 +40,31 @@ public class CompactionStrategyCoordinator(ILlmSettingsService llmSettingsServic
         var summarizationTokens = (int) (inputBudgetTokens * 0.8);
 #pragma warning disable MAAI001
         //todo 设置推理强度为none
-        //todo 对于大的工具结果，需要用占位符替代（图片和大文本）
-       var compactionStrategy= new PipelineCompactionStrategy([
-           new ToolResultCompactionStrategy( trigger: CompactionTriggers.TokensExceed(toolEvictionTokens)),//首先不调用大模型，只将tool的结果拼接，然后移除思考过程
-           //调用摘要的压缩，将历史的消息浓缩成摘要信息，+ 保留的最近的几条消息+上面的工具压缩的
+        var compactionStrategy = new PipelineCompactionStrategy([
+            new ImageCompactionStrategy(trigger: CompactionTriggers.TokensExceed((int)(inputBudgetTokens*0.4))),
+            new ToolResultCompactionStrategy(
+                trigger: CompactionTriggers.TokensExceed(toolEvictionTokens)), //首先不调用大模型，只将tool的结果拼接，然后移除思考过程
+            //调用摘要的压缩，将历史的消息浓缩成摘要信息，+ 保留的最近的几条消息+上面的工具压缩的
             new SummarizationCompactionStrategy(dynamicChatClient,
-                trigger: CompactionTriggers.TokensExceed(summarizationTokens), minimumPreservedGroups: 8)// minimumPreservedGroups 设置保留的最新的消息数量，用于上下文的连贯
+                trigger: CompactionTriggers.TokensExceed(summarizationTokens),
+                minimumPreservedGroups: 8) // minimumPreservedGroups 设置保留的最新的消息数量，用于上下文的连贯
         ]);
 #pragma warning restore MAAI001
         //增加一个工具结果的本地存储
         return compactionStrategy.AsChatReducer();
+    }
+
+    /// <summary>
+    /// 裁剪
+    /// </summary>
+    /// <param name="messages"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async Task<IEnumerable<ChatMessage>> ReduceAsync(IEnumerable<ChatMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var chatReducer = Create();
+        return await chatReducer.ReduceAsync(messages, cancellationToken);
     }
 }

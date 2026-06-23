@@ -3,6 +3,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
+using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 
 namespace NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 
@@ -29,7 +30,7 @@ public class PersistenceChatHistoryProvider(
     {
         var state = this._sessionState.GetOrInitializeState(context.Session);
         //消息裁剪
-        state.Messages = (await compactionStrategyCoordinator.Create().ReduceAsync(state.Messages, cancellationToken)).ToList();
+        state.Messages = (await compactionStrategyCoordinator.ReduceAsync(state.Messages, cancellationToken)).ToList();
         return state.Messages;
     }
 
