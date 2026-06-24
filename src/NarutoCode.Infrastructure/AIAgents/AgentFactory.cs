@@ -154,6 +154,7 @@ public class AgentFactory(
                                  - 读取指定范围内容时，使用 `ReadFileLines`工具。
                                  - 替换指定范围内容时，使用 `ReplaceFileLines`工具。
                                  - 不要在已知行号范围的情况下读取整个文件或使用全文件替换。
+                                 - 当使用`ReplaceFileLines`工具的时候，尽可能一次性改完，如果涉及到了多次的调用，每次调用前一定要先调用`ReadFileLines`工具获取最新的改动信息，以免行号有问题
                                  - 只有在无法确定具体行号、需要理解上下文、或需要跨文件搜索时，才使用`FileAccess_*`里面的读取编辑工具
                                  """
                         }),

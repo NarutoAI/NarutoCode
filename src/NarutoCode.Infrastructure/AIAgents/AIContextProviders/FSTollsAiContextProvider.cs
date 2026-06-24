@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -301,9 +302,24 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
         [Description("要修改的文件路径")] string path,
         [Description("开始行号，从 1 开始")] int startLine,
         [Description("结束行号，从 1 开始且包含该行")] int endLine,
-        [Description("要写入的多行文本内容，每一项代表一行；为空时删除该区间")]
-        string[] newContent)
+        [Description("要写入的多行文本内容，参数为数组字符串，数组中的每一个元素代表一行；为空时删除该区间；参数示例：多行情况 \"[\"line1\",\"line2\"]\",单行情况 \"[\"line1\"]\"")]
+        string newContent)
     {
+        string[]? newContentArr = [];
+
+        if (!string.IsNullOrEmpty(newContent))
+        {
+            try
+            {
+                newContentArr =
+                    JsonSerializer.Deserialize<string[]>(newContent,
+                        AIContentJsonSerializerContext.Default.StringArray);
+            }
+            catch (Exception e)
+            {
+                return "newContent参数错误，请检查是否为json数组字符串，参数示例：多行情况 \"[\"line1\",\"line2\"]\",单行情况 \"[\"line1\"]\"";
+            }
+        }
         var validationError = ValidateLineRange(path, startLine, endLine, out var filePath);
         if (validationError is not null)
         {
@@ -326,7 +342,7 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
 
             var directory = Path.Combine(ProjectConstant.AppDirectory, ProjectConstant.TempDirectory);
             tempFilePath = Path.Combine(directory, $".{fileInfo.Name}.{Guid.NewGuid():N}.tmp");
-            var totalLines = await RewriteFileLinesAsync(filePath, tempFilePath, startLine, endLine, newContent);
+            var totalLines = await RewriteFileLinesAsync(filePath, tempFilePath, startLine, endLine, newContentArr);
 
             if (endLine > totalLines)
             {
@@ -334,7 +350,7 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
             }
 
             File.Move(tempFilePath, filePath, overwrite: true);
-            return $"已替换 {NormalizePath(filePath)} 的 {startLine}-{endLine} 行，新内容 {newContent.Length} 行。";
+            return $"已替换 {NormalizePath(filePath)} 的 {startLine}-{endLine} 行，新内容 {newContentArr.Length} 行。";
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
         {
