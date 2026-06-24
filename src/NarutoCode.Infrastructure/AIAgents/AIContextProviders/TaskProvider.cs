@@ -13,7 +13,7 @@ namespace NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 /// <summary>
 /// 任务上下文
 /// </summary>
-public class TaskProvider : AIContextProvider
+public sealed class TaskProvider : AIContextProvider
 {
     /// <summary>
     /// 任务的提示词
@@ -33,7 +33,7 @@ public class TaskProvider : AIContextProvider
         - 只有完全完成任务时才能标记 completed；如果测试失败、实现不完整、存在未解决错误、缺少必要文件或依赖，不得标记 completed，应保持 in_progress 或创建阻塞任务。
         - 任务依赖必须显式维护：当前任务阻塞其它任务时使用 addBlocks；当前任务依赖其它任务时使用 addBlockedBy。
         - 删除任务是永久操作，仅当任务创建错误、已不相关或被明确取代时使用 deleted。
-        - 任务列表来自运行时状态，仅作为上下文参考；不要仅因为存在 pending 或 in_progress 任务就忽略用户最新问题。
+        - 任务列表来自运行时状态，仅作为上下文参考；不要仅因为存在 pending、in_progress 或 waiting_ack 任务就忽略用户最新问题。
 
         ## TaskCreate
 
@@ -124,22 +124,23 @@ public class TaskProvider : AIContextProvider
     }
 
     /// <summary>
-    /// 获取任务集合
+    /// 获取当前未结束任务集合。
     /// </summary>
-    /// <returns></returns>
+    /// <returns>当前任务列表上下文消息。</returns>
     private string FormatTaskListMessage()
     {
         var taskState = GetTaskState();
-        //获取没有完成的任务
-        var tasks = taskState.Items.Where(a=>a.Status is TaskAgentTaskStatus.Pending or TaskAgentTaskStatus.InProgress).ToList();
-        if (tasks is not {Count:>0})
-        {
-            return "### Current Task List\n- none yet";
-        }
         var sb = new StringBuilder("### Current Task List\n");
+        var hasTasks = false;
 
-        foreach (var task in tasks)
+        foreach (var task in taskState.Items)
         {
+            if (task.Status is not (TaskAgentTaskStatus.Pending or TaskAgentTaskStatus.InProgress or TaskAgentTaskStatus.WaitingAck))
+            {
+                continue;
+            }
+
+            hasTasks = true;
             sb.Append($"- {task.Id} [{task.ToWireStatus()}] {task.Subject}");
             if (!string.IsNullOrWhiteSpace(task.Description))
             {
@@ -148,8 +149,8 @@ public class TaskProvider : AIContextProvider
 
             sb.AppendLine();
         }
-        
-        return sb.ToString();
+
+        return hasTasks ? sb.ToString() : "### Current Task List\n- none yet";
     }
 
 
@@ -251,21 +252,52 @@ public class TaskProvider : AIContextProvider
     {
         var taskState = GetTaskState();
         var tasks = taskState.Items;
-        var completedTaskIds = tasks
-            .Where(task => task.Status == TaskAgentTaskStatus.Completed)
-            .Select(task => task.Id)
-            .ToHashSet(StringComparer.Ordinal);
+        var completedTaskIds = new HashSet<string>(StringComparer.Ordinal);
+        var pending = 0;
+        var inProgress = 0;
+        var completed = 0;
+        var waitingAck = 0;
+        var stopped = 0;
+
+        foreach (var task in tasks)
+        {
+            switch (task.Status)
+            {
+                case TaskAgentTaskStatus.Pending:
+                    pending++;
+                    break;
+                case TaskAgentTaskStatus.InProgress:
+                    inProgress++;
+                    break;
+                case TaskAgentTaskStatus.Completed:
+                    completed++;
+                    completedTaskIds.Add(task.Id);
+                    break;
+                case TaskAgentTaskStatus.WaitingAck:
+                    waitingAck++;
+                    break;
+                case TaskAgentTaskStatus.Stopped:
+                    stopped++;
+                    break;
+            }
+        }
+
+        var taskResults = new TaskListItemToolResult[tasks.Count];
+        for (var i = 0; i < tasks.Count; i++)
+        {
+            taskResults[i] = TaskListItemToolResult.FromTask(tasks[i], completedTaskIds);
+        }
 
         return Serialize(new TaskListToolResult
         {
             Success = true,
             Total = tasks.Count,
-            Pending = tasks.Count(task => task.Status == TaskAgentTaskStatus.Pending),
-            InProgress = tasks.Count(task => task.Status == TaskAgentTaskStatus.InProgress),
-            Completed = tasks.Count(task => task.Status == TaskAgentTaskStatus.Completed),
-            WaitingAck =  tasks.Count(task => task.Status == TaskAgentTaskStatus.WaitingAck),
-            Stopped = tasks.Count(task => task.Status == TaskAgentTaskStatus.Stopped),
-            Tasks = tasks.Select(task => TaskListItemToolResult.FromTask(task, completedTaskIds)).ToArray()
+            Pending = pending,
+            InProgress = inProgress,
+            Completed = completed,
+            WaitingAck = waitingAck,
+            Stopped = stopped,
+            Tasks = taskResults
         });
     }
 
@@ -325,7 +357,7 @@ public class TaskProvider : AIContextProvider
                 TaskId = normalizedTaskId,
                 UpdatedFields = deleted ? ["deleted"] : [],
                 StatusChange = deleted
-                    ? new TaskStatusChangeToolResult {From = existingTask.ToWireStatus(), To = "deleted"}
+                    ? new TaskStatusChangeToolResult {From = existingTask.ToWireStatus(), To = TaskWireStatus.Deleted}
                     : null,
                 ErrorMessage = deleted ? null : "Failed to delete task."
             });
@@ -474,7 +506,7 @@ public class TaskProvider : AIContextProvider
     /// </summary>
     private static bool IsDeletedStatus(string? status)
     {
-        return string.Equals(NormalizeStatus(status), "deleted", StringComparison.Ordinal);
+        return string.Equals(NormalizeStatus(status), TaskWireStatus.Deleted, StringComparison.Ordinal);
     }
 
 
@@ -506,24 +538,23 @@ public class TaskProvider : AIContextProvider
 
         parsedStatus = normalized switch
         {
-            "pending" => TaskAgentTaskStatus.Pending,
-            "in_progress" => TaskAgentTaskStatus.InProgress,
-            "waiting_ack"=> TaskAgentTaskStatus.WaitingAck,
-            "completed" => TaskAgentTaskStatus.Completed,
-            "stopped" => TaskAgentTaskStatus.Stopped,
+            TaskWireStatus.Pending => TaskAgentTaskStatus.Pending,
+            TaskWireStatus.InProgress => TaskAgentTaskStatus.InProgress,
+            TaskWireStatus.WaitingAck => TaskAgentTaskStatus.WaitingAck,
+            TaskWireStatus.Completed => TaskAgentTaskStatus.Completed,
+            TaskWireStatus.Stopped => TaskAgentTaskStatus.Stopped,
             _ => null
         };
-
         if (parsedStatus is not null)
         {
             return true;
         }
 
-        error = "Unsupported task status. Use pending, in_progress, completed, stopped, or deleted.";
+        error = "Unsupported task status. Use pending, in_progress, waiting_ack, completed, stopped, or deleted.";
         return false;
     }
 
-    // <summary>
+    /// <summary>
     /// 应用任务基础字段更新。
     /// </summary>
     private static void ApplyBasicUpdates(
@@ -538,27 +569,31 @@ public class TaskProvider : AIContextProvider
         string? error,
         List<string> updatedFields)
     {
-        if (!string.IsNullOrWhiteSpace(subject) && task.Subject != subject.Trim())
+        var normalizedSubject = NormalizeNullableText(subject);
+        if (normalizedSubject is not null && task.Subject != normalizedSubject)
         {
-            task.Subject = subject.Trim();
+            task.Subject = normalizedSubject;
             AddUpdatedField(updatedFields, "subject");
         }
 
-        if (!string.IsNullOrWhiteSpace(description) && task.Description != description.Trim())
+        var normalizedDescription = NormalizeNullableText(description);
+        if (normalizedDescription is not null && task.Description != normalizedDescription)
         {
-            task.Description = description.Trim();
+            task.Description = normalizedDescription;
             AddUpdatedField(updatedFields, "description");
         }
 
-        if (activeForm is not null && task.ActiveForm != NormalizeNullableText(activeForm))
+        var normalizedActiveForm = NormalizeNullableText(activeForm);
+        if (activeForm is not null && task.ActiveForm != normalizedActiveForm)
         {
-            task.ActiveForm = NormalizeNullableText(activeForm);
+            task.ActiveForm = normalizedActiveForm;
             AddUpdatedField(updatedFields, "activeForm");
         }
 
-        if (owner is not null && task.Owner != NormalizeNullableText(owner))
+        var normalizedOwner = NormalizeNullableText(owner);
+        if (owner is not null && task.Owner != normalizedOwner)
         {
-            task.Owner = NormalizeNullableText(owner);
+            task.Owner = normalizedOwner;
             AddUpdatedField(updatedFields, "owner");
         }
 
@@ -568,9 +603,8 @@ public class TaskProvider : AIContextProvider
             AddUpdatedField(updatedFields, "status");
         }
 
-        if (metadata is not null)
+        if (metadata is not null && MergeMetadata(task.Metadata, metadata))
         {
-            MergeMetadata(task.Metadata, metadata);
             AddUpdatedField(updatedFields, "metadata");
         }
 
@@ -590,7 +624,7 @@ public class TaskProvider : AIContextProvider
     /// <summary>
     /// 规范化可空文本。
     /// </summary>
-    private static string? NormalizeNullableText(string value)
+    private static string? NormalizeNullableText(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
@@ -625,11 +659,11 @@ public class TaskProvider : AIContextProvider
     {
         return status switch
         {
-            TaskAgentTaskStatus.Pending => "pending",
-            TaskAgentTaskStatus.InProgress => "in_progress",
-            TaskAgentTaskStatus.WaitingAck => "waiting_ack",
-            TaskAgentTaskStatus.Completed => "completed",
-            TaskAgentTaskStatus.Stopped => "stopped",
+            TaskAgentTaskStatus.Pending => TaskWireStatus.Pending,
+            TaskAgentTaskStatus.InProgress => TaskWireStatus.InProgress,
+            TaskAgentTaskStatus.WaitingAck => TaskWireStatus.WaitingAck,
+            TaskAgentTaskStatus.Completed => TaskWireStatus.Completed,
+            TaskAgentTaskStatus.Stopped => TaskWireStatus.Stopped,
             _ => "unknown"
         };
     }
@@ -637,17 +671,24 @@ public class TaskProvider : AIContextProvider
     /// <summary>
     /// 合并元数据，值为 null 时删除对应键。
     /// </summary>
-    private static void MergeMetadata(Dictionary<string, object?> target, IReadOnlyDictionary<string, object?> metadata)
+    private static bool MergeMetadata(Dictionary<string, object?> target, IReadOnlyDictionary<string, object?> metadata)
     {
+        var changed = false;
         foreach (var item in metadata)
         {
             if (item.Value is null)
             {
-                target.Remove(item.Key);
+                changed |= target.Remove(item.Key);
                 continue;
             }
 
-            target[item.Key] = item.Value;
+            if (!target.TryGetValue(item.Key, out var oldValue) || !Equals(oldValue, item.Value))
+            {
+                target[item.Key] = item.Value;
+                changed = true;
+            }
         }
+
+        return changed;
     }
 }

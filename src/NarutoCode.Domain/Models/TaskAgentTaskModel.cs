@@ -72,7 +72,6 @@ public sealed class TaskAgentTask
     /// </summary>
     public DateTimeOffset UpdatedAt { get; set; }
 
-    
     /// <summary>
     /// 将任务状态转换为工具结果使用的字符串。
     /// </summary>
@@ -80,14 +79,25 @@ public sealed class TaskAgentTask
     {
         return this.Status switch
         {
-            TaskAgentTaskStatus.Pending => "pending",
-            TaskAgentTaskStatus.InProgress => "in_progress",
-            TaskAgentTaskStatus.WaitingAck => "waiting_ack",
-            TaskAgentTaskStatus.Completed => "completed",
-            TaskAgentTaskStatus.Stopped => "stopped",
+            TaskAgentTaskStatus.Pending => TaskWireStatus.Pending,
+            TaskAgentTaskStatus.InProgress => TaskWireStatus.InProgress,
+            TaskAgentTaskStatus.WaitingAck => TaskWireStatus.WaitingAck,
+            TaskAgentTaskStatus.Completed => TaskWireStatus.Completed,
+            TaskAgentTaskStatus.Stopped => TaskWireStatus.Stopped,
             _ => "unknown"
         };
     }
-    
-    
+}
+
+/// <summary>
+/// 任务状态字符串常量
+/// </summary>
+public static class TaskWireStatus
+{
+    public const string Pending = "pending";
+    public const string InProgress = "in_progress";
+    public const string WaitingAck = "waiting_ack";
+    public const string Completed = "completed";
+    public const string Stopped = "stopped";
+    public const string Deleted = "deleted";
 }
