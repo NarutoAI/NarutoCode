@@ -14,6 +14,10 @@ public class ProjectConstant
     public const string DataDirectory = "data";
 
     /// <summary>
+    /// 临时
+    /// </summary>
+    public const string TempDirectory = "tmp";
+    /// <summary>
     /// 配置文件名称。
     /// </summary>
     public const string ConfigurationFileName = "config.json";

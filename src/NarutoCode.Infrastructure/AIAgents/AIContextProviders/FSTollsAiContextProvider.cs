@@ -1,14 +1,44 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+using NarutoCode.Domain;
+using NarutoCode.Domain.Workspaces;
+using NarutoCode.Infrastructure.JsonSerializerContexts;
 
-namespace NarutoCode.Infrastructure.Tools;
+namespace NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 
 /// <summary>
-/// 提供给 Agent 调用的文件搜索工具集合。
+/// 文件系统工具
 /// </summary>
-public static class SearchAgentTools
+public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContextAccessor) : AIContextProvider
 {
+    protected override ValueTask<AIContext> ProvideAIContextAsync(
+        InvokingContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ValueTask.FromResult(new AIContext
+        {
+            Tools = this._tools ??= this.CreateTools()
+        });
+    }
+
+    private AITool[]? _tools;
+
+    private AITool[] CreateTools()
+    {
+        return
+        [
+            AIFunctionFactory.Create(Glob, serializerOptions: AIContentJsonSerializerContext.Default.Options),
+            AIFunctionFactory.Create(Grep, serializerOptions: AIContentJsonSerializerContext.Default.Options),
+            AIFunctionFactory.Create(ReadFileLines, serializerOptions: AIContentJsonSerializerContext.Default.Options),
+            AIFunctionFactory.Create(ReplaceFileLines,
+                serializerOptions: AIContentJsonSerializerContext.Default.Options),
+        ];
+    }
+
+
     /// <summary>
     /// 默认最大返回结果数量。
     /// </summary>
@@ -66,19 +96,14 @@ public static class SearchAgentTools
     /// <param name="maxResults">最大返回结果数量。</param>
     /// <returns>每行一个匹配路径；无匹配时返回提示文本。</returns>
     [Description("按 Glob 通配符模式搜索文件和目录，例如 *.cs、**/*.json、src/**/*.cs，并按最后修改时间倒序返回")]
-    public static Task<string> Glob(
+    public Task<string> Glob(
         [Description("Glob 模式，例如 *.cs、**/*.json、src/**/*.cs")]
         string pattern,
-        [Description("搜索根目录；为空时使用当前工作目录")]
-        string? path = null,
-        [Description("是否包含隐藏文件和隐藏目录")]
-        bool hidden = false,
-        [Description("是否跟随符号链接目录")]
-        bool followSymlinks = false,
-        [Description("最大递归深度，默认 25")]
-        int maxDepth = DefaultMaxDepth,
-        [Description("最大返回结果数量，默认 100")]
-        int maxResults = DefaultMaxResults)
+        [Description("搜索根目录；为空时使用当前工作目录")] string? path = null,
+        [Description("是否包含隐藏文件和隐藏目录")] bool hidden = false,
+        [Description("是否跟随符号链接目录")] bool followSymlinks = false,
+        [Description("最大递归深度，默认 25")] int maxDepth = DefaultMaxDepth,
+        [Description("最大返回结果数量，默认 100")] int maxResults = DefaultMaxResults)
     {
         if (string.IsNullOrWhiteSpace(pattern))
         {
@@ -154,31 +179,22 @@ public static class SearchAgentTools
     /// <param name="afterContext">每个匹配后输出的上下文行数。</param>
     /// <returns>匹配结果文本；无匹配时返回提示文本。</returns>
     [Description("使用正则表达式搜索文件内容，返回 file:line:text 格式结果；支持 Glob 文件过滤、大小写控制和上下文行")]
-    public static async Task<string> Grep(
+    public async Task<string> Grep(
         [Description("要搜索的正则表达式；literal 为 true 时按普通文本匹配")]
         string pattern,
-        [Description("搜索文件或目录；为空时使用当前工作目录")]
-        string? path = null,
+        [Description("搜索文件或目录；为空时使用当前工作目录")] string? path = null,
         [Description("文件过滤 Glob 模式，例如 *.cs、**/*.md，默认 * 表示所有文件")]
         string glob = "*",
-        [Description("是否大小写敏感，默认 false")]
-        bool caseSensitive = false,
+        [Description("是否大小写敏感，默认 false")] bool caseSensitive = false,
         [Description("是否将 pattern 当作普通文本而不是正则表达式")]
         bool literal = false,
-        [Description("是否包含隐藏文件和隐藏目录")]
-        bool hidden = false,
-        [Description("目录递归最大深度，默认 25")]
-        int maxDepth = DefaultMaxDepth,
-        [Description("最大匹配结果数量，默认 100")]
-        int maxResults = DefaultMaxResults,
-        [Description("最大输出字节数，默认 65536")]
-        int maxOutputBytes = DefaultMaxOutputBytes,
-        [Description("单行最大输出长度，默认 160")]
-        int maxLineLength = DefaultMaxLineLength,
-        [Description("每个匹配前输出的上下文行数")]
-        int beforeContext = 0,
-        [Description("每个匹配后输出的上下文行数")]
-        int afterContext = 0)
+        [Description("是否包含隐藏文件和隐藏目录")] bool hidden = false,
+        [Description("目录递归最大深度，默认 25")] int maxDepth = DefaultMaxDepth,
+        [Description("最大匹配结果数量，默认 100")] int maxResults = DefaultMaxResults,
+        [Description("最大输出字节数，默认 65536")] int maxOutputBytes = DefaultMaxOutputBytes,
+        [Description("单行最大输出长度，默认 160")] int maxLineLength = DefaultMaxLineLength,
+        [Description("每个匹配前输出的上下文行数")] int beforeContext = 0,
+        [Description("每个匹配后输出的上下文行数")] int afterContext = 0)
     {
         if (string.IsNullOrWhiteSpace(pattern))
         {
@@ -186,7 +202,8 @@ public static class SearchAgentTools
         }
 
         var searchRoot = ResolveSearchRoot(path);
-        var searchFiles = GetSearchFiles(searchRoot, glob, hidden, followSymlinks: false, Math.Clamp(maxDepth, 0, DefaultMaxDepth));
+        var searchFiles = GetSearchFiles(searchRoot, glob, hidden, followSymlinks: false,
+            Math.Clamp(maxDepth, 0, DefaultMaxDepth));
         var regexPattern = literal ? Regex.Escape(pattern) : pattern;
         var regexOptions = RegexOptions.CultureInvariant | RegexOptions.Compiled;
         if (!caseSensitive)
@@ -230,14 +247,297 @@ public static class SearchAgentTools
     }
 
     /// <summary>
+    /// 读取指定文件中从开始行到结束行的内容，行号从 1 开始且包含结束行。
+    /// </summary>
+    /// <param name="path">要读取的文件路径。</param>
+    /// <param name="startLine">开始行号，从 1 开始。</param>
+    /// <param name="endLine">结束行号，从 1 开始且包含该行。</param>
+    /// <param name="maxLineLength">单行最大输出长度。</param>
+    /// <returns>file:line:text 格式的行内容；参数无效时返回错误提示。</returns>
+    [Description("查看文件指定开始行到结束行的内容，行号从 1 开始，包含结束行")]
+    public async Task<string> ReadFileLines(
+        [Description("要读取的文件路径")] string path,
+        [Description("开始行号，从 1 开始")] int startLine,
+        [Description("结束行号，从 1 开始且包含该行")] int endLine,
+        [Description("单行最大输出长度，默认 1000")] int maxLineLength = 1000)
+    {
+        var validationError = ValidateLineRange(path, startLine, endLine, out var filePath);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        try
+        {
+            var fileInfo = new FileInfo(filePath);
+            if (fileInfo.Length == 0)
+            {
+                return "文件为空。";
+            }
+
+            if (fileInfo.Length > MaxSearchFileBytes)
+            {
+                return $"文件过大，超过最大可读取大小 {MaxSearchFileBytes} 字节。";
+            }
+
+            return await ReadFileLinesCoreAsync(filePath, startLine, endLine, Math.Clamp(maxLineLength, 40, 4000));
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            return $"读取文件失败: {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// 替换指定文件中从开始行到结束行的内容，行号从 1 开始且包含结束行。
+    /// </summary>
+    /// <param name="path">要修改的文件路径。</param>
+    /// <param name="startLine">开始行号，从 1 开始。</param>
+    /// <param name="endLine">结束行号，从 1 开始且包含该行。</param>
+    /// <param name="newContent">用于替换行区间的新内容；为空时删除该区间。</param>
+    /// <returns>修改结果说明；参数无效或写入失败时返回错误提示。</returns>
+    [Description("修改文件指定开始行到结束行的内容，行号从 1 开始，包含结束行；newContent 为空时删除该区间")]
+    public async Task<string> ReplaceFileLines(
+        [Description("要修改的文件路径")] string path,
+        [Description("开始行号，从 1 开始")] int startLine,
+        [Description("结束行号，从 1 开始且包含该行")] int endLine,
+        [Description("要写入的多行文本内容，每一项代表一行；为空时删除该区间")]
+        string[] newContent)
+    {
+        var validationError = ValidateLineRange(path, startLine, endLine, out var filePath);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        string? tempFilePath = null;
+        try
+        {
+            var fileInfo = new FileInfo(filePath);
+            if (fileInfo.Length == 0)
+            {
+                return "文件为空，无法按行区间替换。";
+            }
+
+            if (fileInfo.Length > MaxSearchFileBytes)
+            {
+                return $"文件过大，超过最大可修改大小 {MaxSearchFileBytes} 字节。";
+            }
+
+            var directory = Path.Combine(ProjectConstant.AppDirectory, ProjectConstant.TempDirectory);
+            tempFilePath = Path.Combine(directory, $".{fileInfo.Name}.{Guid.NewGuid():N}.tmp");
+            var totalLines = await RewriteFileLinesAsync(filePath, tempFilePath, startLine, endLine, newContent);
+
+            if (endLine > totalLines)
+            {
+                return $"结束行超出文件总行数，共 {totalLines} 行。";
+            }
+
+            File.Move(tempFilePath, filePath, overwrite: true);
+            return $"已替换 {NormalizePath(filePath)} 的 {startLine}-{endLine} 行，新内容 {newContent.Length} 行。";
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            return $"修改文件失败: {exception.Message}";
+        }
+        finally
+        {
+            if (tempFilePath is not null && File.Exists(tempFilePath))
+            {
+                try
+                {
+                    File.Delete(tempFilePath);
+                }
+                catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+                {
+                    // 临时文件清理失败不覆盖原始工具结果，后续可由系统临时清理处理。
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 流式重写文件行区间，原文件在调用方确认总行数有效后再被替换。
+    /// </summary>
+    /// <param name="filePath">原文件路径。</param>
+    /// <param name="tempFilePath">临时输出文件路径。</param>
+    /// <param name="startLine">开始行号。</param>
+    /// <param name="endLine">结束行号。</param>
+    /// <param name="replacementLines">替换行集合。</param>
+    /// <returns>原文件总行数。</returns>
+    private static async Task<int> RewriteFileLinesAsync(
+        string filePath,
+        string tempFilePath,
+        int startLine,
+        int endLine,
+        IReadOnlyList<string> replacementLines)
+    {
+        var lineNumber = 0;
+
+        await using var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(inputStream, detectEncodingFromByteOrderMarks: true);
+        await using var outputStream =
+            new FileStream(tempFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        await using var writer = new StreamWriter(outputStream);
+
+        while (true)
+        {
+            var line = await reader.ReadLineAsync();
+            if (line is null)
+            {
+                break;
+            }
+
+            lineNumber++;
+            if (lineNumber == startLine)
+            {
+                // 到达替换起点时先写入新内容，随后跳过原文件中的被替换闭区间。
+                foreach (var replacementLine in replacementLines)
+                {
+                    await writer.WriteLineAsync(replacementLine);
+                }
+            }
+
+            if (lineNumber < startLine || lineNumber > endLine)
+            {
+                await writer.WriteLineAsync(line);
+            }
+        }
+
+        return lineNumber;
+    }
+
+    /// <summary>
+    /// 流式读取指定文件行区间。
+    /// </summary>
+    /// <param name="filePath">绝对文件路径。</param>
+    /// <param name="startLine">开始行号。</param>
+    /// <param name="endLine">结束行号。</param>
+    /// <param name="maxLineLength">单行最大输出长度。</param>
+    /// <returns>读取结果或越界提示。</returns>
+    private static async Task<string> ReadFileLinesCoreAsync(
+        string filePath,
+        int startLine,
+        int endLine,
+        int maxLineLength)
+    {
+        var result = new StringBuilder();
+        var lineNumber = 0;
+
+        await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+        while (lineNumber < endLine)
+        {
+            var line = await reader.ReadLineAsync();
+            if (line is null)
+            {
+                break;
+            }
+
+            lineNumber++;
+            // 跳过目标区间之前的行，避免把无关内容写入模型上下文。
+            if (lineNumber < startLine)
+            {
+                continue;
+            }
+
+            // 对单行做长度保护，防止极长行撑爆工具结果。
+            if (line.Length > maxLineLength)
+            {
+                line = string.Concat(line.AsSpan(0, maxLineLength), "…");
+            }
+
+            result.AppendLine(line);
+        }
+
+        if (lineNumber < startLine)
+        {
+            return $"开始行超出文件总行数，共 {lineNumber} 行。";
+        }
+
+        if (lineNumber < endLine)
+        {
+            return $"结束行超出文件总行数，共 {lineNumber} 行。";
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>
+    /// 校验文件行区间参数并解析为绝对文件路径。
+    /// </summary>
+    /// <param name="path">用户输入的文件路径。</param>
+    /// <param name="startLine">开始行号。</param>
+    /// <param name="endLine">结束行号。</param>
+    /// <param name="filePath">解析后的绝对文件路径。</param>
+    /// <returns>参数错误时返回错误提示，否则返回 null。</returns>
+    private static string? ValidateLineRange(string path, int startLine, int endLine, out string filePath)
+    {
+        filePath = string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "文件路径不能为空。";
+        }
+
+        if (startLine < 1 || endLine < 1)
+        {
+            return "开始行和结束行必须大于等于 1。";
+        }
+
+        if (startLine > endLine)
+        {
+            return "开始行必须小于或等于结束行。";
+        }
+
+        try
+        {
+            filePath = Path.GetFullPath(path.Trim());
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException
+                                              or PathTooLongException)
+        {
+            return $"无效的文件路径: {exception.Message}";
+        }
+
+        if (!File.Exists(filePath))
+        {
+            return $"文件不存在: {filePath}";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 将文本拆分为逻辑行，末尾换行符不额外生成空行。
+    /// </summary>
+    /// <param name="text">需要拆分的文本。</param>
+    /// <returns>逻辑行数组。</returns>
+    private static string[] SplitContentLines(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return [];
+        }
+
+        var normalizedText = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = normalizedText.Split('\n');
+        if (lines.Length > 0 && lines[^1].Length == 0 && normalizedText.EndsWith('\n'))
+        {
+            return lines[..^1];
+        }
+
+        return lines;
+    }
+
+    /// <summary>
     /// 获取搜索根目录；未传入时使用当前工作目录。
     /// </summary>
     /// <param name="path">用户传入的路径。</param>
     /// <returns>绝对搜索路径。</returns>
-    private static string ResolveSearchRoot(string? path)
+    private string ResolveSearchRoot(string? path)
     {
         return string.IsNullOrWhiteSpace(path)
-            ? Directory.GetCurrentDirectory()
+            ? workspaceContextAccessor.Current.WorkingDirectory
             : Path.GetFullPath(path.Trim());
     }
 
@@ -314,7 +614,8 @@ public static class SearchAgentTools
             {
                 entries = directory.GetFileSystemInfos();
             }
-            catch (Exception exception) when (exception is UnauthorizedAccessException or DirectoryNotFoundException or IOException)
+            catch (Exception exception) when (exception is UnauthorizedAccessException or DirectoryNotFoundException
+                                                  or IOException)
             {
                 continue;
             }
@@ -360,19 +661,22 @@ public static class SearchAgentTools
     /// <param name="searchRoot">搜索根路径。</param>
     /// <param name="regex">匹配正则。</param>
     /// <param name="context">输出上下文。</param>
-    private static async Task SearchFileAsync(string filePath, string searchRoot, Regex regex, GrepOutputContext context)
+    private static async Task SearchFileAsync(string filePath, string searchRoot, Regex regex,
+        GrepOutputContext context)
     {
         FileInfo fileInfo;
         try
         {
             fileInfo = new FileInfo(filePath);
         }
-        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException
+                                              or PathTooLongException)
         {
             return;
         }
 
-        if (!fileInfo.Exists || fileInfo.Length == 0 || fileInfo.Length > MaxSearchFileBytes || await IsBinaryFileAsync(filePath))
+        if (!fileInfo.Exists || fileInfo.Length == 0 || fileInfo.Length > MaxSearchFileBytes ||
+            await IsBinaryFileAsync(filePath))
         {
             return;
         }
@@ -450,7 +754,7 @@ public static class SearchAgentTools
         {
             await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             var read = await stream.ReadAsync(buffer);
-            return buffer.AsSpan(0, read).Contains((byte)0);
+            return buffer.AsSpan(0, read).Contains((byte) 0);
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
         {
@@ -503,7 +807,8 @@ public static class SearchAgentTools
         }
 
         builder.Append('$');
-        return new Regex(builder.ToString(), RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        return new Regex(builder.ToString(),
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     }
 
     /// <summary>
@@ -548,7 +853,8 @@ public static class SearchAgentTools
         /// <summary>
         /// 创建 Grep 输出上下文。
         /// </summary>
-        public GrepOutputContext(int maxResults, int maxOutputBytes, int maxLineLength, int beforeContext, int afterContext)
+        public GrepOutputContext(int maxResults, int maxOutputBytes, int maxLineLength, int beforeContext,
+            int afterContext)
         {
             this.maxResults = maxResults;
             this.maxOutputBytes = maxOutputBytes;

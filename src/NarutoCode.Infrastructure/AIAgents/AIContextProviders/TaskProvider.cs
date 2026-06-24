@@ -7,7 +7,6 @@ using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Models;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 using NarutoCode.Infrastructure.Tasks;
-using NarutoCode.Infrastructure.Tools;
 
 namespace NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 

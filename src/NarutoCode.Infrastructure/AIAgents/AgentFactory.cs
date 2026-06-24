@@ -9,8 +9,6 @@ using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
-using NarutoCode.Infrastructure.JsonSerializerContexts;
-using NarutoCode.Infrastructure.Tools;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
@@ -129,8 +127,6 @@ public class AgentFactory(
                     },
                     Tools =
                     [
-                        AIFunctionFactory.Create(SearchAgentTools.Glob, serializerOptions: AIContentJsonSerializerContext.Default.Options),
-                        AIFunctionFactory.Create(SearchAgentTools.Grep, serializerOptions: AIContentJsonSerializerContext.Default.Options),
                         _persistentShell.AsAIFunction(requireApproval: AppData.Config.EnableApproval)
                     ],
                 },
@@ -139,6 +135,7 @@ public class AgentFactory(
                 [
                     skillsProvider,
                     ToolContinuationSkippingAiContextProvider.Wrap(new TaskProvider()),
+                    new FSTollsAiContextProvider(workspaceContextAccessor),
                     new SvgRenderProvider(workspaceContextAccessor.Current.WorkingDirectory),
                     new FileAccessProvider(
                         new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
@@ -153,7 +150,11 @@ public class AgentFactory(
                                  - 除非用户明确要求，否则切勿删除或覆盖现有文件。
                                  ## 工作目录地址
                                  - {workspaceContextAccessor.Current.WorkingDirectory}
-
+                                 ## 当你已经明确知道需要读取或修改的文件路径，以及具体的起始行和结束行时，必须优先使用行级工具
+                                 - 读取指定范围内容时，使用 `ReadFileLines`工具。
+                                 - 替换指定范围内容时，使用 `ReplaceFileLines`工具。
+                                 - 不要在已知行号范围的情况下读取整个文件或使用全文件替换。
+                                 - 只有在无法确定具体行号、需要理解上下文、或需要跨文件搜索时，才使用`FileAccess_*`里面的读取编辑工具
                                  """
                         }),
                     //记忆
