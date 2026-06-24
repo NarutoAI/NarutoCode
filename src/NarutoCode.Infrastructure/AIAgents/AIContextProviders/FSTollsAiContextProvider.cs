@@ -295,24 +295,24 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
     /// <param name="path">要修改的文件路径。</param>
     /// <param name="startLine">开始行号，从 1 开始。</param>
     /// <param name="endLine">结束行号，从 1 开始且包含该行。</param>
-    /// <param name="newContent">用于替换行区间的新内容；为空时删除该区间。</param>
+    /// <param name="jsonArrayContent"></param>
     /// <returns>修改结果说明；参数无效或写入失败时返回错误提示。</returns>
     [Description("修改文件指定开始行到结束行的内容，行号从 1 开始，包含结束行；newContent 为空时删除该区间")]
     public async Task<string> ReplaceFileLines(
         [Description("要修改的文件路径")] string path,
         [Description("开始行号，从 1 开始")] int startLine,
         [Description("结束行号，从 1 开始且包含该行")] int endLine,
-        [Description("要写入的多行文本内容，参数为数组字符串，数组中的每一个元素代表一行；为空时删除该区间；参数示例：多行情况 \"[\"line1\",\"line2\"]\",单行情况 \"[\"line1\"]\"")]
-        string newContent)
+        [Description("要写入的多行文本内容，参数为标准的json数组字符串，数组中的每一个元素代表一行；为空时删除该区间；参数示例：多行情况 \"[\"line1\",\"line2\"]\",单行情况 \"[\"line1\"]\"")]
+        string jsonArrayContent)
     {
         string[]? newContentArr = [];
 
-        if (!string.IsNullOrEmpty(newContent))
+        if (!string.IsNullOrEmpty(jsonArrayContent))
         {
             try
             {
                 newContentArr =
-                    JsonSerializer.Deserialize<string[]>(newContent,
+                    JsonSerializer.Deserialize<string[]>(jsonArrayContent,
                         AIContentJsonSerializerContext.Default.StringArray);
             }
             catch (Exception e)
