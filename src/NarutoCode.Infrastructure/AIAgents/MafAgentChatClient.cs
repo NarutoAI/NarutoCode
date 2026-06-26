@@ -315,12 +315,7 @@ public class MafAgentChatClient : IAgentChatClient
         var chatMessage = message.Attachments.Count == 0
             ? new ChatMessage(ChatRole.User, message.Content)
             : await CreateUserInputMessageWithAttachmentsAsync(message);
-
-        if (message.IsAutoSend)
-        {
-            return chatMessage;
-        }
-
+        
         chatMessage.AdditionalProperties = new AdditionalPropertiesDictionary
         {
             [ChatMessageAdditionalPropertyNames.IsUserInput] = true

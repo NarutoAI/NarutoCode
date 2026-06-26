@@ -19,7 +19,7 @@ public readonly record struct AgentMessage
         string content,
         string toolApprovalContent = "",
         DateTimeOffset? createdAt = null,
-        IReadOnlyList<AgentMessageAttachment>? attachments = null,bool isAutoSend=false)
+        IReadOnlyList<AgentMessageAttachment>? attachments = null)
     {
         if (RequiresToolApproval(type) && string.IsNullOrWhiteSpace(toolApprovalContent))
         {
@@ -38,7 +38,6 @@ public readonly record struct AgentMessage
         Attachments = attachments is { Count: > 0 }
             ? attachments.ToArray()
             : [];
-        IsAutoSend = isAutoSend;
     }
 
     /// <summary>
@@ -65,11 +64,7 @@ public readonly record struct AgentMessage
     /// 用户消息附件集合，用于携带图片等多模态输入。
     /// </summary>
     public IReadOnlyList<AgentMessageAttachment> Attachments { get; }
-
-    /// <summary>
-    /// 是否自动发送的
-    /// </summary>
-    public bool IsAutoSend { get; }
+    
 
     private static bool RequiresToolApproval(AgentMessageType type)
     {
