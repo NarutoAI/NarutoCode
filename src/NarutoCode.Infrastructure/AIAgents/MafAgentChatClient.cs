@@ -293,16 +293,6 @@ public class MafAgentChatClient : IAgentChatClient
                 yield return new(AgentMessageType.Content, item.Text);
             }
         }
-        // //如果开启计划或者待办的话 返回允许用户审批
-        // if (currentAgentSession.IsOpenPlan(_agent) || await currentAgentSession.IsOpenTodoAsync(_agent))
-        // {
-        //     yield return new(AgentMessageType.Plan, string.Empty);
-        // }
-        // //如果存在遗留未完成的任务，就继续执行
-        // else if (await currentAgentSession.IsExistsInProgressTask(_agent))
-        // {
-        //     yield return new(AgentMessageType.RemainingTask, string.Empty);
-        // }
     }
 
     private async Task<ChatMessage> CreateChatMessageAsync(AgentMessage message)

@@ -71,33 +71,9 @@ public class ConversationService(
         AgentMessage message,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // var nextMessage = message;
-        // var turnCount = 1;
-
-        // while (true)
+        await foreach (var item in agentChatClient.SendMessageAsync(sessionId, message, cancellationToken))
         {
-            // var isAllowUserOps = false;
-            // var remainingTask = false;
-
-            await foreach (var item in agentChatClient.SendMessageAsync(sessionId, message, cancellationToken))
-            {
-                yield return item;
-            }
-
-
-            //
-            // if (AppData.Config.MaxTurnCount <= turnCount)
-            // {
-            //     break;
-            // }
-            //
-            // nextMessage = remainingTask
-            //     ? new AgentMessage(
-            //         AgentMessageType.Content,
-            //         "<system-reminder> Reminder: Continue with existing tasks and use TaskUpdate to keep status current</system-reminder>", isAutoSend:true)
-            //     : new AgentMessage(AgentMessageType.Content, "<system-reminder>continue</system-reminder>", isAutoSend:true);
-            //
-            // turnCount++;
+            yield return item;
         }
     }
 
