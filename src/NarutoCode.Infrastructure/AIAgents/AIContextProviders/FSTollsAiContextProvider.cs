@@ -31,10 +31,10 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
     {
         return
         [
-            AIFunctionFactory.Create(Glob, serializerOptions: AIContentJsonSerializerContext.Default.Options),
-            AIFunctionFactory.Create(Grep, serializerOptions: AIContentJsonSerializerContext.Default.Options),
+            // AIFunctionFactory.Create(Glob, serializerOptions: AIContentJsonSerializerContext.Default.Options),
+            // AIFunctionFactory.Create(Grep, serializerOptions: AIContentJsonSerializerContext.Default.Options),
             AIFunctionFactory.Create(ReadFileLines, serializerOptions: AIContentJsonSerializerContext.Default.Options),
-            AIFunctionFactory.Create(ReplaceFileLines,
+            AIFunctionFactory.Create(Edit,
                 serializerOptions: AIContentJsonSerializerContext.Default.Options),
         ];
     }
@@ -290,137 +290,287 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
     }
 
     /// <summary>
-    /// 替换指定文件中从开始行到结束行的内容，行号从 1 开始且包含结束行。
+    /// 编辑文件内容，将旧文本精确替换为新文本。
     /// </summary>
-    /// <param name="path">要修改的文件路径。</param>
-    /// <param name="startLine">开始行号，从 1 开始。</param>
-    /// <param name="endLine">结束行号，从 1 开始且包含该行。</param>
-    /// <param name="jsonArrayContent"></param>
-    /// <returns>修改结果说明；参数无效或写入失败时返回错误提示。</returns>
-    [Description("修改文件指定开始行到结束行的内容，行号从 1 开始，包含结束行；newContent 为空时删除该区间")]
-    public async Task<string> ReplaceFileLines(
-        [Description("要修改的文件路径")] string path,
-        [Description("开始行号，从 1 开始")] int startLine,
-        [Description("结束行号，从 1 开始且包含该行")] int endLine,
-        [Description("要写入的多行文本内容，参数为标准的json数组字符串，数组中的每一个元素代表一行；为空时删除该区间；参数示例：多行情况 \"[\"line1\",\"line2\"]\",单行情况 \"[\"line1\"]\"")]
-        string jsonArrayContent)
+    /// <param name="file_path">要编辑的文件路径，支持绝对路径或相对当前工作区的路径。</param>
+    /// <param name="old_string">要被替换的旧文本。</param>
+    /// <param name="new_string">替换后的新文本。</param>
+    /// <param name="replace_all">是否替换文件中的所有匹配项；默认仅允许唯一匹配。</param>
+    /// <returns>执行结果说明。</returns>
+    [Description("编辑文件内容，做精确字符串替换；默认要求 old_string 在文件中唯一，replace_all 为 true 时替换所有匹配项")]
+    public async Task<string> Edit(
+        [Description("文件地址，支持绝对路径或相对当前工作区的路径")] string file_path,
+        [Description("要被替换的旧文本，不能为空")] string old_string,
+        [Description("替换后的新文本，必须和 old_string 不同")] string new_string,
+        [Description("是否替换所有匹配项，默认 false")] bool replace_all = false)
     {
-        string[]? newContentArr = [];
-
-        if (!string.IsNullOrEmpty(jsonArrayContent))
-        {
-            try
-            {
-                newContentArr =
-                    JsonSerializer.Deserialize<string[]>(jsonArrayContent,
-                        AIContentJsonSerializerContext.Default.StringArray);
-            }
-            catch (Exception e)
-            {
-                return "newContent参数错误，请检查是否为json数组字符串，参数示例：多行情况 \"[\"line1\",\"line2\"]\",单行情况 \"[\"line1\"]\"";
-            }
-        }
-        var validationError = ValidateLineRange(path, startLine, endLine, out var filePath);
+        var validationError = ValidateEditInput(file_path, old_string, new_string, out var filePath);
         if (validationError is not null)
         {
             return validationError;
         }
 
-        string? tempFilePath = null;
         try
         {
-            var fileInfo = new FileInfo(filePath);
-            if (fileInfo.Length == 0)
+            var (content, encoding) = await ReadTextWithEncodingAsync(filePath);
+            var editResult = ApplyExactReplacement(content, old_string, new_string, replace_all);
+            if (!editResult.Success)
             {
-                return "文件为空，无法按行区间替换。";
+                return editResult.ErrorMessage;
             }
 
-            if (fileInfo.Length > MaxSearchFileBytes)
-            {
-                return $"文件过大，超过最大可修改大小 {MaxSearchFileBytes} 字节。";
-            }
-
-            var directory = Path.Combine(ProjectConstant.AppDirectory, ProjectConstant.TempDirectory);
-            tempFilePath = Path.Combine(directory, $".{fileInfo.Name}.{Guid.NewGuid():N}.tmp");
-            var totalLines = await RewriteFileLinesAsync(filePath, tempFilePath, startLine, endLine, newContentArr);
-
-            if (endLine > totalLines)
-            {
-                return $"结束行超出文件总行数，共 {totalLines} 行。";
-            }
-
-            File.Move(tempFilePath, filePath, overwrite: true);
-            return $"已替换 {NormalizePath(filePath)} 的 {startLine}-{endLine} 行，新内容 {newContentArr.Length} 行。";
+            await File.WriteAllTextAsync(filePath, editResult.UpdatedContent, encoding);
+            return $"文件编辑成功: {filePath}，替换 {editResult.Occurrences} 处。";
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
         {
-            return $"修改文件失败: {exception.Message}";
+            return $"编辑文件失败: {exception.Message}";
         }
-        finally
+    }
+
+    /// <summary>
+    /// 校验编辑参数并解析为绝对文件路径。
+    /// </summary>
+    /// <param name="filePathInput">用户输入的文件路径。</param>
+    /// <param name="oldString">要被替换的旧文本。</param>
+    /// <param name="newString">替换后的新文本。</param>
+    /// <param name="filePath">解析后的绝对文件路径。</param>
+    /// <returns>参数错误时返回错误提示，否则返回 null。</returns>
+    private string? ValidateEditInput(string filePathInput, string oldString, string newString, out string filePath)
+    {
+        filePath = string.Empty;
+        if (string.IsNullOrWhiteSpace(filePathInput))
         {
-            if (tempFilePath is not null && File.Exists(tempFilePath))
+            return "文件路径不能为空。";
+        }
+
+        if (string.IsNullOrEmpty(oldString))
+        {
+            return "old_string 不能为空。";
+        }
+
+        if (oldString == newString)
+        {
+            return "new_string 必须和 old_string 不同。";
+        }
+
+        try
+        {
+            filePath = ResolveToolPath(filePathInput);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException
+                                              or PathTooLongException)
+        {
+            return $"无效的文件路径: {exception.Message}";
+        }
+
+        if (!File.Exists(filePath))
+        {
+            return $"文件不存在: {filePath}";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 读取文本文件内容并保留探测到的编码。
+    /// </summary>
+    /// <param name="filePath">要读取的文件路径。</param>
+    /// <returns>文件内容和编码。</returns>
+    private static async Task<(string Content, Encoding Encoding)> ReadTextWithEncodingAsync(string filePath)
+    {
+        await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+        var content = await reader.ReadToEndAsync();
+        return (content, reader.CurrentEncoding);
+    }
+
+    /// <summary>
+    /// 对文件内容执行精确字符串替换。
+    /// </summary>
+    /// <param name="content">原始文件内容。</param>
+    /// <param name="oldString">要被替换的旧文本。</param>
+    /// <param name="newString">替换后的新文本。</param>
+    /// <param name="replaceAll">是否替换全部匹配。</param>
+    /// <returns>替换结果。</returns>
+    private static EditReplacementResult ApplyExactReplacement(
+        string content,
+        string oldString,
+        string newString,
+        bool replaceAll)
+    {
+        var matchedVariant = BuildOldStringVariants(oldString, content)
+            .FirstOrDefault(variant => variant.Text.Length > 0 && content.Contains(variant.Text, StringComparison.Ordinal));
+        if (matchedVariant is null)
+        {
+            return EditReplacementResult.Failed($"未在文件中找到要替换的字符串。\nString: {oldString}");
+        }
+
+        var occurrences = CountOccurrences(content, matchedVariant.Text);
+        if (!replaceAll && occurrences > 1)
+        {
+            return EditReplacementResult.Failed(
+                $"找到 {occurrences} 处匹配，但 replace_all 为 false。要替换全部请设置 replace_all=true；要只替换一处请提供更多上下文。\nString: {oldString}");
+        }
+
+        var replacementText = ApplyEolStyle(newString, matchedVariant.EolStyle ?? DetectDominantEolStyle(content));
+        var updatedContent = replaceAll
+            ? content.Replace(matchedVariant.Text, replacementText, StringComparison.Ordinal)
+            : ReplaceFirst(content, matchedVariant.Text, replacementText);
+
+        return EditReplacementResult.Succeeded(updatedContent, occurrences);
+    }
+
+    /// <summary>
+    /// 构建旧文本的换行风格候选，兼容模型传入 LF 但文件使用 CRLF 的场景。
+    /// </summary>
+    /// <param name="oldString">模型传入的旧文本。</param>
+    /// <param name="fileContent">文件内容。</param>
+    /// <returns>候选旧文本集合。</returns>
+    private static IEnumerable<OldStringVariant> BuildOldStringVariants(string oldString, string fileContent)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var variant in CreateOldStringVariants(oldString, fileContent))
+        {
+            if (seen.Add(variant.Text))
             {
-                try
-                {
-                    File.Delete(tempFilePath);
-                }
-                catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
-                {
-                    // 临时文件清理失败不覆盖原始工具结果，后续可由系统临时清理处理。
-                }
+                yield return variant;
             }
         }
     }
 
     /// <summary>
-    /// 流式重写文件行区间，原文件在调用方确认总行数有效后再被替换。
+    /// 创建旧文本的换行风格候选。
     /// </summary>
-    /// <param name="filePath">原文件路径。</param>
-    /// <param name="tempFilePath">临时输出文件路径。</param>
-    /// <param name="startLine">开始行号。</param>
-    /// <param name="endLine">结束行号。</param>
-    /// <param name="replacementLines">替换行集合。</param>
-    /// <returns>原文件总行数。</returns>
-    private static async Task<int> RewriteFileLinesAsync(
-        string filePath,
-        string tempFilePath,
-        int startLine,
-        int endLine,
-        IReadOnlyList<string> replacementLines)
+    /// <param name="oldString">模型传入的旧文本。</param>
+    /// <param name="fileContent">文件内容。</param>
+    /// <returns>候选旧文本集合。</returns>
+    private static IEnumerable<OldStringVariant> CreateOldStringVariants(string oldString, string fileContent)
     {
-        var lineNumber = 0;
+        yield return new OldStringVariant(oldString, DetectEolStyle(oldString));
 
-        await using var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(inputStream, detectEncodingFromByteOrderMarks: true);
-        await using var outputStream =
-            new FileStream(tempFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        await using var writer = new StreamWriter(outputStream);
-
-        while (true)
+        if (!oldString.Contains('\n', StringComparison.Ordinal))
         {
-            var line = await reader.ReadLineAsync();
-            if (line is null)
-            {
-                break;
-            }
+            yield break;
+        }
 
-            lineNumber++;
-            if (lineNumber == startLine)
-            {
-                // 到达替换起点时先写入新内容，随后跳过原文件中的被替换闭区间。
-                foreach (var replacementLine in replacementLines)
-                {
-                    await writer.WriteLineAsync(replacementLine);
-                }
-            }
+        var lfText = NormalizeToLf(oldString);
+        yield return new OldStringVariant(lfText, "\n");
+        if (fileContent.Contains("\r\n", StringComparison.Ordinal))
+        {
+            yield return new OldStringVariant(lfText.Replace("\n", "\r\n", StringComparison.Ordinal), "\r\n");
+        }
+    }
 
-            if (lineNumber < startLine || lineNumber > endLine)
+    /// <summary>
+    /// 统计非重叠精确匹配次数。
+    /// </summary>
+    /// <param name="content">源文本。</param>
+    /// <param name="value">要统计的文本。</param>
+    /// <returns>匹配次数。</returns>
+    private static int CountOccurrences(string content, string value)
+    {
+        if (value.Length == 0)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        var index = 0;
+        while ((index = content.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// 替换第一处精确匹配文本。
+    /// </summary>
+    /// <param name="content">源文本。</param>
+    /// <param name="oldString">旧文本。</param>
+    /// <param name="newString">新文本。</param>
+    /// <returns>替换后的文本。</returns>
+    private static string ReplaceFirst(string content, string oldString, string newString)
+    {
+        var index = content.IndexOf(oldString, StringComparison.Ordinal);
+        return index < 0
+            ? content
+            : string.Concat(content.AsSpan(0, index), newString, content.AsSpan(index + oldString.Length));
+    }
+
+    /// <summary>
+    /// 探测文本自身使用的换行风格。
+    /// </summary>
+    /// <param name="value">待探测文本。</param>
+    /// <returns>换行字符串；没有换行时返回 null。</returns>
+    private static string? DetectEolStyle(string value)
+    {
+        if (value.Contains("\r\n", StringComparison.Ordinal))
+        {
+            return "\r\n";
+        }
+
+        return value.Contains('\n', StringComparison.Ordinal) ? "\n" : null;
+    }
+
+    /// <summary>
+    /// 探测文本中的主导换行风格。
+    /// </summary>
+    /// <param name="value">待探测文本。</param>
+    /// <returns>主导换行字符串；没有换行时返回 null。</returns>
+    private static string? DetectDominantEolStyle(string value)
+    {
+        var crlf = 0;
+        var lf = 0;
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] == '\r' && index + 1 < value.Length && value[index + 1] == '\n')
             {
-                await writer.WriteLineAsync(line);
+                crlf++;
+                index++;
+            }
+            else if (value[index] == '\n')
+            {
+                lf++;
             }
         }
 
-        return lineNumber;
+        if (crlf == 0 && lf == 0)
+        {
+            return null;
+        }
+
+        return crlf >= lf ? "\r\n" : "\n";
+    }
+
+    /// <summary>
+    /// 将文本换行标准化为 LF。
+    /// </summary>
+    /// <param name="value">原始文本。</param>
+    /// <returns>LF 换行文本。</returns>
+    private static string NormalizeToLf(string value)
+    {
+        return value.Replace("\r\n", "\n", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 将文本应用指定换行风格。
+    /// </summary>
+    /// <param name="value">原始文本。</param>
+    /// <param name="eolStyle">目标换行风格。</param>
+    /// <returns>换行风格调整后的文本。</returns>
+    private static string ApplyEolStyle(string value, string? eolStyle)
+    {
+        if (eolStyle is null)
+        {
+            return value;
+        }
+
+        var normalized = NormalizeToLf(value);
+        return eolStyle == "\n" ? normalized : normalized.Replace("\n", "\r\n", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -487,7 +637,7 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
     /// <param name="endLine">结束行号。</param>
     /// <param name="filePath">解析后的绝对文件路径。</param>
     /// <returns>参数错误时返回错误提示，否则返回 null。</returns>
-    private static string? ValidateLineRange(string path, int startLine, int endLine, out string filePath)
+    private string? ValidateLineRange(string path, int startLine, int endLine, out string filePath)
     {
         filePath = string.Empty;
         if (string.IsNullOrWhiteSpace(path))
@@ -507,7 +657,7 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
 
         try
         {
-            filePath = Path.GetFullPath(path.Trim());
+            filePath = ResolveToolPath(path);
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException
                                               or PathTooLongException)
@@ -524,28 +674,6 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
     }
 
     /// <summary>
-    /// 将文本拆分为逻辑行，末尾换行符不额外生成空行。
-    /// </summary>
-    /// <param name="text">需要拆分的文本。</param>
-    /// <returns>逻辑行数组。</returns>
-    private static string[] SplitContentLines(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return [];
-        }
-
-        var normalizedText = text.Replace("\r\n", "\n").Replace('\r', '\n');
-        var lines = normalizedText.Split('\n');
-        if (lines.Length > 0 && lines[^1].Length == 0 && normalizedText.EndsWith('\n'))
-        {
-            return lines[..^1];
-        }
-
-        return lines;
-    }
-
-    /// <summary>
     /// 获取搜索根目录；未传入时使用当前工作目录。
     /// </summary>
     /// <param name="path">用户传入的路径。</param>
@@ -554,7 +682,23 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
     {
         return string.IsNullOrWhiteSpace(path)
             ? workspaceContextAccessor.Current.WorkingDirectory
-            : Path.GetFullPath(path.Trim());
+            : ResolveToolPath(path);
+    }
+
+    /// <summary>
+    /// 解析工具输入路径，绝对路径原样标准化，相对路径基于当前工作区。
+    /// </summary>
+    /// <param name="path">用户输入路径。</param>
+    /// <returns>解析后的绝对路径。</returns>
+    private string ResolveToolPath(string path)
+    {
+        var trimmedPath = path.Trim();
+        if (Path.IsPathFullyQualified(trimmedPath))
+        {
+            return Path.GetFullPath(trimmedPath);
+        }
+
+        return Path.GetFullPath(trimmedPath, workspaceContextAccessor.Current.WorkingDirectory);
     }
 
     /// <summary>
@@ -853,6 +997,68 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
     /// <param name="Path">文件或目录完整路径。</param>
     /// <param name="LastWriteTimeUtc">最后修改时间。</param>
     private sealed record SearchPathMatch(string Path, DateTime LastWriteTimeUtc);
+
+    /// <summary>
+    /// 旧文本候选及其换行风格。
+    /// </summary>
+    /// <param name="Text">候选文本。</param>
+    /// <param name="EolStyle">候选文本使用的换行风格。</param>
+    private sealed record OldStringVariant(string Text, string? EolStyle);
+
+    /// <summary>
+    /// 精确替换执行结果。
+    /// </summary>
+    private sealed class EditReplacementResult
+    {
+        private EditReplacementResult(bool success, string updatedContent, int occurrences, string errorMessage)
+        {
+            Success = success;
+            UpdatedContent = updatedContent;
+            Occurrences = occurrences;
+            ErrorMessage = errorMessage;
+        }
+
+        /// <summary>
+        /// 是否替换成功。
+        /// </summary>
+        public bool Success { get; }
+
+        /// <summary>
+        /// 替换后的文件内容。
+        /// </summary>
+        public string UpdatedContent { get; }
+
+        /// <summary>
+        /// 替换发生次数。
+        /// </summary>
+        public int Occurrences { get; }
+
+        /// <summary>
+        /// 失败时的错误信息。
+        /// </summary>
+        public string ErrorMessage { get; }
+
+        /// <summary>
+        /// 创建成功结果。
+        /// </summary>
+        /// <param name="updatedContent">替换后的文件内容。</param>
+        /// <param name="occurrences">替换发生次数。</param>
+        /// <returns>成功结果。</returns>
+        public static EditReplacementResult Succeeded(string updatedContent, int occurrences)
+        {
+            return new EditReplacementResult(true, updatedContent, occurrences, string.Empty);
+        }
+
+        /// <summary>
+        /// 创建失败结果。
+        /// </summary>
+        /// <param name="errorMessage">错误信息。</param>
+        /// <returns>失败结果。</returns>
+        public static EditReplacementResult Failed(string errorMessage)
+        {
+            return new EditReplacementResult(false, string.Empty, 0, errorMessage);
+        }
+    }
 
     /// <summary>
     /// Grep 输出上下文，负责结果数量、字节数和截断控制。

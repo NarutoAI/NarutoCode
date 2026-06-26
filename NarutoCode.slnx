@@ -10,4 +10,7 @@
     <Project Path="src/NarutoCodeCli/NarutoCodeCli.csproj" />
     <Project Path="src\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/test/">
+    <Project Path="tests/NarutoCode.Infrastructure.Tests/NarutoCode.Infrastructure.Tests.csproj" />
+  </Folder>
 </Solution>
