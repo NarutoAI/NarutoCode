@@ -9,6 +9,7 @@ using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
+using NarutoCode.Infrastructure.AIAgents.LoopEvaluators;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
@@ -190,7 +191,13 @@ public class AgentFactory(
                 ToolApprovalAgentOptions = new ToolApprovalAgentOptions
                 {
                     AutoApprovalRules = [ToolApprovalAgent.AllToolsAutoApprovalRule]//todo 暂时设置所有工具调用开启自动审批
-                }
+                },
+                //Loop评估器 
+                LoopEvaluators = [new TaskLoopEvaluator(),new TodoCompletionLoopEvaluator(new TodoCompletionLoopEvaluatorOptions
+                {
+                    //只允许执行下的todo 没有完成的话，继续循环执行
+                    Modes = ["execute"],
+                })]
                 //文件处理
                 // FileAccessStore = new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
             },loggerFactory: loggerFactory);

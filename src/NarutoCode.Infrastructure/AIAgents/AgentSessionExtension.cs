@@ -49,7 +49,7 @@ public static class AgentSessionExtension
         /// 是否存在执行中的任务
         /// </summary>
         /// <returns></returns>
-        public async Task<bool> IsExistsInProgressTask(AIAgent agent)
+        public bool IsExistsInProgressTask(AIAgent agent)
         {
 #pragma warning disable MAAI001
             var todoProvider = agent.GetService<TaskProvider>();
