@@ -94,6 +94,9 @@ public class AgentFactory(
                        - 确保每次更改都完整：添加导入语句、处理错误、遵守类型规范。  
                        - 如果更改涉及公共API或合约，请注明调用者可能需要更新的内容。
                        
+                       ## 工作目录地址
+                       - {workspaceContextAccessor.Current.WorkingDirectory}
+                       
                        ## 其它信息
                        - 当前操作系统：`{RuntimeInformation.OSDescription}`
                        
@@ -148,9 +151,8 @@ public class AgentFactory(
                                  这些文件在当前会话结束后仍可保留，并可在多个会话或代理之间共享。  
                                  使用这些工具来读取用户提供的输入数据、写入输出结果，以及管理用户要求您处理的任何文件。
                                  - 除非用户明确要求，否则切勿删除或覆盖现有文件。
-                                 ## 工作目录地址
-                                 - {workspaceContextAccessor.Current.WorkingDirectory}
-                                 ## 使用`Edit`工具规则
+                                 
+                                 ## 使用`file_access_edit_file`工具规则
                                  - 如果 `old_string` 在文件中不唯一，则编辑会失败。请提供一个更长且上下文更丰富的字符串以确保唯一性，或使用 `replace_all` 替换所有 `old_string` 的实例。
                                  """
                         }),

@@ -33,8 +33,8 @@ public class FSTollsAiContextProvider(IWorkspaceContextAccessor workspaceContext
         [
             AIFunctionFactory.Create(Glob, serializerOptions: AIContentJsonSerializerContext.Default.Options),
             AIFunctionFactory.Create(Grep, serializerOptions: AIContentJsonSerializerContext.Default.Options),
-            AIFunctionFactory.Create(ReadFileLines, serializerOptions: AIContentJsonSerializerContext.Default.Options),
-            AIFunctionFactory.Create(Edit,
+            // AIFunctionFactory.Create(ReadFileLines, serializerOptions: AIContentJsonSerializerContext.Default.Options),
+            AIFunctionFactory.Create(Edit,"file_access_edit_file",
                 serializerOptions: AIContentJsonSerializerContext.Default.Options),
         ];
     }
