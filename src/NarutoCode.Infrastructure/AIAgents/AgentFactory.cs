@@ -186,6 +186,10 @@ public class AgentFactory(
                 DisableFileAccess = true, //禁用自带的文件处理
                 DisableCompaction =  true,//上面的持久化存储设置了压缩
                 MaxOutputTokens =  MaxOutputTokens,
+                ToolApprovalAgentOptions = new ToolApprovalAgentOptions
+                {
+                    AutoApprovalRules = [ToolApprovalAgent.AllToolsAutoApprovalRule]//todo 暂时设置所有工具调用开启自动审批
+                }
                 //文件处理
                 // FileAccessStore = new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
             },loggerFactory: loggerFactory);
