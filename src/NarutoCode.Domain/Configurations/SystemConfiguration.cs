@@ -1,4 +1,4 @@
-namespace NarutoCode.Domain.Configurations;
+﻿namespace NarutoCode.Domain.Configurations;
 
 /// <summary>
 /// 系统运行配置，描述日志等非模型业务的基础运行参数。
@@ -23,9 +23,9 @@ public sealed class CompactionThresholds
 {
     /// <summary>
     /// 图片压缩触发阈值（相对于上下文窗口的比例）。
-    /// 图片占用空间大，优先处理，默认 0.4。
+    /// 图片占用空间大，优先处理，默认 0.25。
     /// </summary>
-    public double ImageCompaction { get; set; } = 0.4;
+    public double ImageCompaction { get; set; } = 0.25;
 
     /// <summary>
     /// 工具结果压缩触发阈值（相对于上下文窗口的比例）。
@@ -38,4 +38,15 @@ public sealed class CompactionThresholds
     /// 调用 LLM 生成摘要，代价最高，默认 0.8。
     /// </summary>
     public double Summarization { get; set; } = 0.8;
+
+    /// <summary>
+    /// 兜底截断触发阈值（相对于上下文窗口的比例）。
+    /// 当摘要后仍接近窗口上限时直接保留最近消息，默认 0.9。
+    /// </summary>
+    public double FallbackTruncation { get; set; } = 0.9;
+
+    /// <summary>
+    /// 摘要和兜底截断时至少保留的最近消息组数量，默认 8。
+    /// </summary>
+    public int MinimumPreservedGroups { get; set; } = 8;
 }

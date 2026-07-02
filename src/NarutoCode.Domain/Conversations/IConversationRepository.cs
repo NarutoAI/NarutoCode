@@ -66,4 +66,14 @@ public interface IConversationRepository
     Task<IReadOnlyList<Message>> ListMessagesAsync(
         long conversationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按运行时顺序获取发送给 LLM 的已裁剪历史消息。
+    /// </summary>
+    /// <param name="conversationId">对话标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>LLM 运行时历史消息集合。</returns>
+    Task<IReadOnlyList<Message>> ListRuntimeMessagesAsync(
+        long conversationId,
+        CancellationToken cancellationToken = default);
 }

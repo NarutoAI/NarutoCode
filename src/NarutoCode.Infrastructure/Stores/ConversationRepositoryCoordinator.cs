@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using System.Globalization;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -39,6 +39,7 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         {
             await InsertMessageAsync(
                 connection,
+                transaction: null,
                 conversationId,
                 messages[index],
                 cancellationToken);
@@ -48,14 +49,118 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         {
             await AddConversationTokenCountAsync(
                 connection,
+                transaction: null,
                 conversationId,
                 totalUsage.GetValueOrDefault(),
                 cancellationToken);
         }
     }
 
+    /// <summary>
+    /// 在同一个事务中追加 UI 历史、更新 Token 用量并覆盖 LLM 运行时上下文。
+    /// </summary>
+    /// <param name="conversationId">对话 ID。</param>
+    /// <param name="messages">待追加到 UI 历史的消息。</param>
+    /// <param name="runtimeMessages">已裁剪的运行时上下文消息。</param>
+    /// <param name="totalUsage">本轮总 Token 用量。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task PersistHistoriesAsync(
+        long conversationId,
+        IReadOnlyList<ChatMessage> messages,
+        IReadOnlyList<ChatMessage> runtimeMessages,
+        long? totalUsage = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (conversationId == 0)
+        {
+            return;
+        }
+
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        foreach (var message in messages)
+        {
+            await InsertMessageAsync(
+                connection,
+                transaction,
+                conversationId,
+                message,
+                cancellationToken);
+        }
+
+        if (totalUsage.GetValueOrDefault() > 0)
+        {
+            await AddConversationTokenCountAsync(
+                connection,
+                transaction,
+                conversationId,
+                totalUsage.GetValueOrDefault(),
+                cancellationToken);
+        }
+
+        await DeleteRuntimeMessagesAsync(
+            connection,
+            transaction,
+            conversationId,
+            cancellationToken);
+
+        for (var index = 0; index < runtimeMessages.Count; index++)
+        {
+            await InsertRuntimeMessageAsync(
+                connection,
+                transaction,
+                conversationId,
+                index,
+                runtimeMessages[index],
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 覆盖保存指定对话发送给 LLM 的运行时上下文消息。
+    /// </summary>
+    /// <param name="conversationId">对话 ID。</param>
+    /// <param name="messages">已裁剪的运行时上下文消息。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task ReplaceRuntimeMessagesAsync(
+        long conversationId,
+        IReadOnlyList<ChatMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        if (conversationId == 0)
+        {
+            return;
+        }
+
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await DeleteRuntimeMessagesAsync(
+            connection,
+            transaction,
+            conversationId,
+            cancellationToken);
+
+        for (var index = 0; index < messages.Count; index++)
+        {
+            await InsertRuntimeMessageAsync(
+                connection,
+                transaction,
+                conversationId,
+                index,
+                messages[index],
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     private static async Task InsertMessageAsync(
         DbConnection connection,
+        DbTransaction? transaction,
         long conversationId,
         ChatMessage chatMessage,
         CancellationToken cancellationToken)
@@ -72,7 +177,8 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
 #pragma warning restore MEAI001
         };
 
-        await using var command = connection.CreateCommand();
+        await using DbCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText =
             """
             INSERT INTO "Messages" ("Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility")
@@ -91,6 +197,65 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
     }
 
     /// <summary>
+    /// 删除指定对话已有的 LLM 运行时上下文消息。
+    /// </summary>
+    /// <param name="connection">数据库连接。</param>
+    /// <param name="transaction">当前事务。</param>
+    /// <param name="conversationId">对话 ID。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private static async Task DeleteRuntimeMessagesAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        long conversationId,
+        CancellationToken cancellationToken)
+    {
+        await using DbCommand deleteCommand = connection.CreateCommand();
+        deleteCommand.Transaction = transaction;
+        deleteCommand.CommandText =
+            """
+            DELETE FROM "ConversationRuntimeMessages"
+            WHERE "ConversationId" = $conversationId;
+            """;
+        AddParameter(deleteCommand, "$conversationId", conversationId);
+        await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 插入一条发送给 LLM 的运行时上下文消息。
+    /// </summary>
+    /// <param name="connection">数据库连接。</param>
+    /// <param name="transaction">当前覆盖写入事务。</param>
+    /// <param name="conversationId">对话 ID。</param>
+    /// <param name="sequence">运行时上下文顺序。</param>
+    /// <param name="chatMessage">聊天消息。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private static async Task InsertRuntimeMessageAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        long conversationId,
+        int sequence,
+        ChatMessage chatMessage,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            INSERT INTO "ConversationRuntimeMessages" ("Id", "ConversationId", "Sequence", "Role", "ModelContent", "CreatedAt")
+            VALUES ($id, $conversationId, $sequence, $role, $modelContent, $createdAt);
+            """;
+        AddParameter(command, "$id", SnowflakeIdHelper.Instance.NextId());
+        AddParameter(command, "$conversationId", conversationId);
+        AddParameter(command, "$sequence", sequence);
+        AddParameter(command, "$role", chatMessage.Role.Value);
+#pragma warning disable MEAI001
+        AddParameter(command, "$modelContent", AIContentJsonSerializerContext.SerializeContents(chatMessage.Contents));
+#pragma warning restore MEAI001
+        AddParameter(command, "$createdAt", DateTime.Now.ToString("O", CultureInfo.InvariantCulture));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// 累加会话级 Token 用量。
     /// </summary>
     /// <param name="connection">数据库连接。</param>
@@ -99,11 +264,13 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
     /// <param name="cancellationToken">取消令牌。</param>
     private static async Task AddConversationTokenCountAsync(
         DbConnection connection,
+        DbTransaction? transaction,
         long conversationId,
         long tokenCount,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
+        await using DbCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText =
             """
             UPDATE "Conversations"

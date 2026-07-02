@@ -1,4 +1,4 @@
-using NarutoCode.Infrastructure.Stores;
+﻿using NarutoCode.Infrastructure.Stores;
 
 namespace NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 
@@ -18,10 +18,23 @@ public sealed class ConversationChatHistoryPersistenceHandler(
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(context);
 
-        // 
-        return conversationRepositoryCoordinator.AddAsync(
+        return PersistCoreAsync(context, cancellationToken);
+    }
+
+    /// <summary>
+    /// 在同一事务中持久化 UI 追加历史和 LLM 运行时覆盖历史。
+    /// </summary>
+    /// <param name="context">聊天历史持久化上下文。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private Task PersistCoreAsync(
+        ChatHistoryPersistenceContext context,
+        CancellationToken cancellationToken)
+    {
+        return conversationRepositoryCoordinator.PersistHistoriesAsync(
             context.SessionId,
-            context.Messages.ToList(),
-            context.TotalUsage,cancellationToken);
+            context.Messages,
+            context.RuntimeMessages,
+            context.TotalUsage,
+            cancellationToken);
     }
 }

@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -66,8 +66,8 @@ public class MafAgentChatClient : IAgentChatClient
 
     private async Task<AgentSession> CreateSessionAsync(ConversationSessionId sessionId)
     {
-        // 读取持久化历史时必须丢弃取消或崩溃留下的半截工具调用，否则模型会因缺少工具结果拒绝继续对话。
-        var messages = await _conversationRepository.ListMessagesAsync(sessionId.Value);
+        var messages = await LoadSessionHistoryMessagesAsync(_conversationRepository, sessionId);
+
         var session = await _agent.CreateSessionAsync();
         var chatMessages = new List<ChatMessage>(messages.Count);
 
@@ -84,6 +84,29 @@ public class MafAgentChatClient : IAgentChatClient
         }
 
         return session.CreateSession(sessionId, PruneIncompleteToolCalls(chatMessages));
+    }
+
+    /// <summary>
+    /// 读取恢复 Agent 会话所需的历史消息，优先使用已裁剪的 LLM 运行时上下文。
+    /// </summary>
+    /// <param name="conversationRepository">对话仓储。</param>
+    /// <param name="sessionId">会话标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>用于恢复 Agent 会话的历史消息。</returns>
+    internal static async Task<IReadOnlyList<Domain.Entities.Message>> LoadSessionHistoryMessagesAsync(
+        IConversationRepository conversationRepository,
+        ConversationSessionId sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        // 读取持久化历史时优先使用已裁剪的 LLM 运行时上下文，避免重启后从 UI 完整历史重复裁剪。
+        var messages = await conversationRepository.ListRuntimeMessagesAsync(sessionId.Value, cancellationToken);
+        if (messages.Count > 0)
+        {
+            return messages;
+        }
+
+        // 兼容旧版本数据库：首次升级后 runtime 表为空时，回退读取原历史，后续持久化会写入 runtime 表。
+        return await conversationRepository.ListMessagesAsync(sessionId.Value, cancellationToken);
     }
 
     /// <summary>

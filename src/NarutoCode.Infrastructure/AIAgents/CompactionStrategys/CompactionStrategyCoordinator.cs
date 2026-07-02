@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Microsoft.Agents.AI.Compaction;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain;
@@ -8,7 +8,7 @@ using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 namespace NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 
 /// <summary>
-/// 压缩策略协调器，根据配置的阈值依次执行图片、工具结果、摘要三种压缩策略。
+/// 压缩策略协调器，根据配置的阈值依次执行图片、工具结果、摘要和兜底截断策略。
 /// </summary>
 public class CompactionStrategyCoordinator(ILlmSettingsService llmSettingsService, DynamicChatClient dynamicChatClient)
 {
@@ -44,17 +44,22 @@ public class CompactionStrategyCoordinator(ILlmSettingsService llmSettingsServic
         var toolEvictionTokens = (int)(inputBudgetTokens * thresholds.ToolEviction);
         // 摘要压缩阈值：调用LLM生成摘要，代价最高
         var summarizationTokens = (int)(inputBudgetTokens * thresholds.Summarization);
+        // 兜底截断阈值：摘要后仍接近窗口上限时，直接保留最近消息，避免请求超过窗口。
+        var fallbackTruncationTokens = (int)(inputBudgetTokens * thresholds.FallbackTruncation);
+        var minimumPreservedGroups = Math.Max(1, thresholds.MinimumPreservedGroups);
 
 #pragma warning disable MAAI001
         // todo 设置推理强度为none
         var compactionStrategy = new PipelineCompactionStrategy([
             new ImageCompactionStrategy(trigger: CompactionTriggers.TokensExceed(imageCompactionTokens)),
             new ToolResultCompactionStrategy(
-                trigger: CompactionTriggers.TokensExceed(toolEvictionTokens)), // 首先不调用大模型，只将tool的结果拼接，然后移除思考过程
-            // 调用摘要的压缩，将历史的消息浓缩成摘要信息，+保留的最近的几条消息+上面的工具压缩的
+                trigger: CompactionTriggers.TokensExceed(toolEvictionTokens)), // 大于 60% 时先压工具结果，减少无需 LLM 的上下文成本。
             new SummarizationCompactionStrategy(dynamicChatClient,
                 trigger: CompactionTriggers.TokensExceed(summarizationTokens),
-                minimumPreservedGroups: 8) // minimumPreservedGroups 设置保留的最新的消息数量，用于上下文的连贯
+                minimumPreservedGroups: minimumPreservedGroups), // 大于 80% 时生成摘要，保留最近消息保证连续性。
+            new TruncationCompactionStrategy(
+                trigger: CompactionTriggers.TokensExceed(fallbackTruncationTokens),
+                minimumPreservedGroups: minimumPreservedGroups) // 大于 90% 时兜底截断，避免上下文超过模型窗口。
         ]);
 #pragma warning restore MAAI001
         // 增加一个工具结果的本地存储

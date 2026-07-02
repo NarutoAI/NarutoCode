@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 
 namespace NarutoCode.Infrastructure.Stores;
 
@@ -55,10 +55,23 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
                 CONSTRAINT "FK_Messages_Conversations_ConversationId" FOREIGN KEY ("ConversationId") REFERENCES "Conversations" ("Id") ON DELETE CASCADE
             );
             """,
+            """
+            CREATE TABLE IF NOT EXISTS "ConversationRuntimeMessages" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_ConversationRuntimeMessages" PRIMARY KEY AUTOINCREMENT,
+                "ConversationId" INTEGER NOT NULL,
+                "Sequence" INTEGER NOT NULL,
+                "Role" TEXT NOT NULL,
+                "ModelContent" TEXT NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_ConversationRuntimeMessages_Conversations_ConversationId" FOREIGN KEY ("ConversationId") REFERENCES "Conversations" ("Id") ON DELETE CASCADE
+            );
+            """,
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_UpdatedAt\" ON \"Conversations\" (\"UpdatedAt\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_WorkDirectory\" ON \"Conversations\" (\"WorkDirectory\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId\" ON \"Messages\" (\"ConversationId\");",
-            "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId_CreatedAt\" ON \"Messages\" (\"ConversationId\", \"CreatedAt\");"
+            "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId_CreatedAt\" ON \"Messages\" (\"ConversationId\", \"CreatedAt\");",
+            "CREATE INDEX IF NOT EXISTS \"IX_ConversationRuntimeMessages_ConversationId\" ON \"ConversationRuntimeMessages\" (\"ConversationId\");",
+            "CREATE INDEX IF NOT EXISTS \"IX_ConversationRuntimeMessages_ConversationId_Sequence\" ON \"ConversationRuntimeMessages\" (\"ConversationId\", \"Sequence\");"
         };
 
         foreach (var commandText in commands)

@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain;
@@ -78,9 +78,13 @@ public class PersistenceChatHistoryProvider(
         if (persistenceHandler is not null)
         {
             await persistenceHandler.PersistAsync(
-                new ChatHistoryPersistenceContext(state.SessionId,context.RequestMessages 
-                    .Concat(responseMessages)
-                    .ToList(), state.TotalUsage),
+                new ChatHistoryPersistenceContext(
+                    state.SessionId,
+                    context.RequestMessages
+                        .Concat(responseMessages)
+                        .ToList(),
+                    state.Messages.ToList(),
+                    state.TotalUsage),
                 cancellationToken);
         }
     }

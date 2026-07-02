@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using System.Globalization;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Conversations;
@@ -219,7 +219,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         return resultList;
     }
 
-    /// <inheritdoc />
+  
     public async Task<IReadOnlyList<Message>> ListMessagesAsync(
         long conversationId,
         CancellationToken cancellationToken = default)
@@ -228,6 +228,42 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             conversationId,
             filterUiMessageTypes: false,
             cancellationToken);
+    }
+    
+    public async Task<IReadOnlyList<Message>> ListRuntimeMessagesAsync(
+        long conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT "Id", "ConversationId", "Role", "ModelContent", "CreatedAt"
+            FROM "ConversationRuntimeMessages"
+            WHERE "ConversationId" = $conversationId
+            ORDER BY "Sequence", "Id";
+            """;
+        AddParameter(command, "$conversationId", conversationId);
+
+        var messages = new List<Message>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            messages.Add(new Message
+            {
+                Id = reader.GetInt64(0),
+                ConversationId = reader.GetInt64(1),
+                Role = reader.GetString(2),
+                ModelContent = reader.GetString(3),
+                CreatedAt = ReadDateTime(reader, 4),
+                Content = string.Empty,
+                ContentType = string.Empty,
+                MessageType = AgentMessageType.Content,
+                Visibility = MessageVisibility.Visible
+            });
+        }
+
+        return messages;
     }
 
     private static async Task<Conversation?> FindLatestConversationAsync(
