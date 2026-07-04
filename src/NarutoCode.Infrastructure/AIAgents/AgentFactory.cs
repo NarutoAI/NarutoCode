@@ -44,6 +44,24 @@ public class AgentFactory(
         var persistenceChatHistoryProvider = new PersistenceChatHistoryProvider(
             chatHistoryPersistenceHandler,compactionStrategyCoordinator);
 
+       var fsTollsAiContextProvider= new FSTollsAiContextProvider(workspaceContextAccessor);
+       var fileAccessProvider= new FileAccessProvider(
+            new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
+            new FileAccessProviderOptions
+            {
+                Instructions =
+                    $"""
+                     ## 文件访问
+                     您可以通过 `file_access_*` 工具访问共享的文件存储区域，用于读取、写入和管理文件。  
+                     这些文件在当前会话结束后仍可保留，并可在多个会话或代理之间共享。  
+                     使用这些工具来读取用户提供的输入数据、写入输出结果，以及管理用户要求您处理的任何文件。
+                     - 除非用户明确要求，否则切勿删除或覆盖现有文件。
+                     - 注意 在使用`file_access_*`的工具的时候，其中`fileName`或者`directory`参数 必须使用相对工作目录的路径来调用，否则就会无法访问
+
+                     ## 使用`edit_file`工具规则
+                     - 如果 `old_string` 在文件中不唯一，则编辑会失败。请提供一个更长且上下文更丰富的字符串以确保唯一性，或使用 `replace_all` 替换所有 `old_string` 的实例。
+                     """
+            });
         var memoryPath = Path.Combine(workspaceContextAccessor.Current.WorkingDirectory, ProjectConstant.ConfigurationDirectory, "memory");
         //校验工作目录是否存在AGENTS.md文档
         var agentMd = AgentsMdAsync(workspaceContextAccessor.Current.WorkingDirectory);
@@ -139,25 +157,11 @@ public class AgentFactory(
                 [
                     skillsProvider,
                     ToolContinuationSkippingAiContextProvider.Wrap(new TaskProvider()),
-                    new FSTollsAiContextProvider(workspaceContextAccessor),
+                    new CodeReviewAIContextProvider(dynamicChatClient,[
+                        fileAccessProvider,]),
+                    fsTollsAiContextProvider,
+                    fileAccessProvider,
                     new SvgRenderProvider(workspaceContextAccessor.Current.WorkingDirectory),
-                    new FileAccessProvider(
-                        new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
-                        new FileAccessProviderOptions
-                        {
-                            Instructions =
-                                $"""
-                                 ## 文件访问
-                                 您可以通过 `file_access_*` 工具访问共享的文件存储区域，用于读取、写入和管理文件。  
-                                 这些文件在当前会话结束后仍可保留，并可在多个会话或代理之间共享。  
-                                 使用这些工具来读取用户提供的输入数据、写入输出结果，以及管理用户要求您处理的任何文件。
-                                 - 除非用户明确要求，否则切勿删除或覆盖现有文件。
-                                 - 注意 在使用`file_access_*`的工具的时候，其中`fileName`或者`directory`参数 必须使用相对工作目录的路径来调用，否则就会无法访问
-                                 
-                                 ## 使用`edit_file`工具规则
-                                 - 如果 `old_string` 在文件中不唯一，则编辑会失败。请提供一个更长且上下文更丰富的字符串以确保唯一性，或使用 `replace_all` 替换所有 `old_string` 的实例。
-                                 """
-                        }),
                     //记忆
                     ToolContinuationSkippingAiContextProvider.Wrap(new FileMemoryProvider(
                         new FileSystemAgentFileStore(memoryPath),
