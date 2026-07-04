@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
@@ -10,12 +10,14 @@ using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.AIAgents.LoopEvaluators;
+using NarutoCode.Infrastructure.AIAgents.Mcp;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
 public class AgentFactory(
     IWorkspaceContextAccessor workspaceContextAccessor,
-    IChatHistoryPersistenceHandler chatHistoryPersistenceHandler,ILoggerFactory loggerFactory,CompactionStrategyCoordinator compactionStrategyCoordinator,DynamicChatClient dynamicChatClient)
+    IChatHistoryPersistenceHandler chatHistoryPersistenceHandler,ILoggerFactory loggerFactory,CompactionStrategyCoordinator compactionStrategyCoordinator,DynamicChatClient dynamicChatClient,
+    McpClientManager mcpClientManager)
     : IAgentFactory, IAsyncDisposable
 {
     internal const int MaxOutputTokens = 128_000;
@@ -186,6 +188,7 @@ public class AgentFactory(
                                            """
                         })),
                     ToolContinuationSkippingAiContextProvider.Wrap(new TodoProvider()),
+                    new McpToolsAIContextProvider(mcpClientManager),
                     new CollectApprovalToolAiContextProvider()
                 ],
                 DisableTodoProvider = true,

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.AI;
+﻿using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using NarutoCode.Application;
 using NarutoCode.Application.Agents;
@@ -12,6 +12,7 @@ using NarutoCode.Infrastructure.AIAgents;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
+using NarutoCode.Infrastructure.AIAgents.Mcp;
 using NarutoCode.Infrastructure.ChatClients;
 using NarutoCode.Infrastructure.Stores;
 
@@ -53,6 +54,7 @@ public static class InfrastructureServiceCollectionExtension
 
             services.AddSingleton<IAgentChatClient, MafAgentChatClient>();
             services.AddSingleton<IAgentFactory, AgentFactory>();
+            services.AddSingleton<McpClientManager>();
             services.AddSingleton<ConversationRepositoryCoordinator>();
             services.AddSingleton<IChatHistoryPersistenceHandler, ConversationChatHistoryPersistenceHandler>();
             services.AddSingleton<IConversationRepository, ConversationRepository>();

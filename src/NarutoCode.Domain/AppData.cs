@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using NarutoCode.Domain.Configurations;
 
 namespace NarutoCode.Domain;
@@ -49,6 +49,7 @@ public static class AppData
         }
 
         configuration.System ??= new SystemConfiguration();
+        configuration.McpServers ??= [];
         EnsureLlmConfigurationsExists(configuration.Llms);
         ValidateLlmConfigurations(configuration.Llms);
 
