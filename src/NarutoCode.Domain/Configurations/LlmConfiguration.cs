@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Enums;
+﻿using NarutoCode.Domain.Enums;
 
 namespace NarutoCode.Domain.Configurations;
 
@@ -36,4 +36,9 @@ public sealed class LlmConfiguration
     /// 最大上下文窗口
     /// </summary>
     public int MaxContextWindowTokens { get; set; }
+
+    /// <summary>
+    /// 模型最大输出 Token 数，用于限制单次回复长度和计算输入预算。
+    /// </summary>
+    public int MaxOutputTokens { get; set; } = 128_000;
 }

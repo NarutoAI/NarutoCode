@@ -20,7 +20,6 @@ public class AgentFactory(
     McpClientManager mcpClientManager)
     : IAgentFactory, IAsyncDisposable
 {
-    internal const int MaxOutputTokens = 128_000;
 
     /// <summary>
     /// 本地shell工具
@@ -67,6 +66,7 @@ public class AgentFactory(
         var memoryPath = Path.Combine(workspaceContextAccessor.Current.WorkingDirectory, ProjectConstant.ConfigurationDirectory, "memory");
         //校验工作目录是否存在AGENTS.md文档
         var agentMd = AgentsMdAsync(workspaceContextAccessor.Current.WorkingDirectory);
+        
         return dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
             {
                 AgentModeProviderOptions = new AgentModeProviderOptions
@@ -143,8 +143,6 @@ public class AgentFactory(
                 ChatHistoryProvider = persistenceChatHistoryProvider,
                 ChatOptions = new ChatOptions
                 {
-                    MaxOutputTokens =
-                        MaxOutputTokens,
                     Reasoning = new()
                     {
                         Output = ReasoningOutput.Summary,
@@ -194,7 +192,6 @@ public class AgentFactory(
                 DisableTodoProvider = true,
                 DisableFileAccess = true, //禁用自带的文件处理
                 DisableCompaction =  true,//上面的持久化存储设置了压缩
-                MaxOutputTokens =  MaxOutputTokens,
                 ToolApprovalAgentOptions = new ToolApprovalAgentOptions
                 {
                     AutoApprovalRules = [ToolApprovalAgent.AllToolsAutoApprovalRule]//todo 暂时设置所有工具调用开启自动审批

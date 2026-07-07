@@ -29,7 +29,7 @@ public class DynamicChatClient(IServiceProvider serviceProvider, ILlmSettingsSer
         CancellationToken cancellationToken = new CancellationToken())
     {
         return serviceProvider.GetRequiredKeyedService<IChatClient>(llmSettingsService.CurrentProvider)
-            .GetResponseAsync(messages, ApplyEffort(options), cancellationToken);
+            .GetResponseAsync(messages, Apply(options), cancellationToken);
     }
 
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
@@ -37,20 +37,21 @@ public class DynamicChatClient(IServiceProvider serviceProvider, ILlmSettingsSer
         CancellationToken cancellationToken = new CancellationToken())
     {
         return serviceProvider.GetRequiredKeyedService<IChatClient>(llmSettingsService.CurrentProvider)
-            .GetStreamingResponseAsync(messages, ApplyEffort(options), cancellationToken);
+            .GetStreamingResponseAsync(messages, Apply(options), cancellationToken);
     }
 
     
     /// <summary>
-    /// 更新推理强度
+    /// 动态更新配置
     /// </summary>
     /// <param name="options"></param>
     /// <returns></returns>
-    private ChatOptions ApplyEffort(ChatOptions? options)
+    private ChatOptions Apply(ChatOptions? options)
     {
         var configuredOptions = options ?? new ChatOptions();
         configuredOptions.Reasoning ??= new ReasoningOptions();
         configuredOptions.Reasoning.Effort = llmSettingsService.CurrentEffort.ToReasoningEffort();
+        configuredOptions.MaxOutputTokens = llmSettingsService.CurrentLlm.MaxOutputTokens;
         return configuredOptions;
     }
 

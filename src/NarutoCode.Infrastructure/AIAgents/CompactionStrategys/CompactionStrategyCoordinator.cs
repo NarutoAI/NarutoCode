@@ -33,7 +33,7 @@ public class CompactionStrategyCoordinator(ILlmSettingsService llmSettingsServic
          */
 
         // 输入窗口的剩余最大token
-        var inputBudgetTokens = llmSettingsService.CurrentLlm.MaxContextWindowTokens - AgentFactory.MaxOutputTokens;
+        var inputBudgetTokens = llmSettingsService.CurrentLlm.MaxContextWindowTokens - llmSettingsService.CurrentLlm.MaxOutputTokens;
 
         // 从配置获取压缩阈值
         var thresholds = AppData.Config.System.CompactionThresholds;
@@ -50,6 +50,7 @@ public class CompactionStrategyCoordinator(ILlmSettingsService llmSettingsServic
 
 #pragma warning disable MAAI001
         // todo 设置推理强度为none
+        //todo 后续需要使用最新一次调用的token消耗来作为压缩的判断依据 更加准确
         var compactionStrategy = new PipelineCompactionStrategy([
             new ImageCompactionStrategy(trigger: CompactionTriggers.TokensExceed(imageCompactionTokens)),
             new ToolResultCompactionStrategy(
