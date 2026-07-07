@@ -21,11 +21,13 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
     /// <param name="conversationId">对话 ID。</param>
     /// <param name="messages">待写入消息。</param>
     /// <param name="totalUsage">本轮总 Token 用量。</param>
+    /// <param name="inputTokenCount">本轮输入 Token 用量，用于压缩策略判断。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     public async Task AddAsync(
         long conversationId,
         List<ChatMessage> messages,
         long? totalUsage = null,
+        long? inputTokenCount = null,
         CancellationToken cancellationToken = default)
     {
         if (conversationId == 0 || messages.Count == 0)
@@ -52,6 +54,7 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
                 transaction: null,
                 conversationId,
                 totalUsage.GetValueOrDefault(),
+                inputTokenCount.GetValueOrDefault(),
                 cancellationToken);
         }
     }
@@ -63,12 +66,14 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
     /// <param name="messages">待追加到 UI 历史的消息。</param>
     /// <param name="runtimeMessages">已裁剪的运行时上下文消息。</param>
     /// <param name="totalUsage">本轮总 Token 用量。</param>
+    /// <param name="inputTokenCount">本轮输入 Token 用量，用于压缩策略判断。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     public async Task PersistHistoriesAsync(
         long conversationId,
         IReadOnlyList<ChatMessage> messages,
         IReadOnlyList<ChatMessage> runtimeMessages,
         long? totalUsage = null,
+        long? inputTokenCount = null,
         CancellationToken cancellationToken = default)
     {
         if (conversationId == 0)
@@ -96,6 +101,7 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
                 transaction,
                 conversationId,
                 totalUsage.GetValueOrDefault(),
+                inputTokenCount.GetValueOrDefault(),
                 cancellationToken);
         }
 
@@ -256,17 +262,20 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
     }
 
     /// <summary>
-    /// 累加会话级 Token 用量。
+    /// 累加会话级 Token 用量并更新最近一次调用的输入 Token。
     /// </summary>
     /// <param name="connection">数据库连接。</param>
+    /// <param name="transaction">当前事务。</param>
     /// <param name="conversationId">对话 ID。</param>
-    /// <param name="tokenCount">本轮 Token 用量。</param>
+    /// <param name="tokenCount">本轮总 Token 用量。</param>
+    /// <param name="inputTokenCount">本轮输入 Token 用量。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     private static async Task AddConversationTokenCountAsync(
         DbConnection connection,
         DbTransaction? transaction,
         long conversationId,
         long tokenCount,
+        long inputTokenCount,
         CancellationToken cancellationToken)
     {
         await using DbCommand command = connection.CreateCommand();
@@ -275,11 +284,13 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
             """
             UPDATE "Conversations"
             SET "TokenCount" = "TokenCount" + $tokenCount,
-                "LastUsageTokenCount" = $tokenCount
+                "LastUsageTokenCount" = $tokenCount,
+                "LastInputTokenCount" = $inputTokenCount
             WHERE "Id" = $conversationId;
             """;
         AddParameter(command, "$conversationId", conversationId);
         AddParameter(command, "$tokenCount", tokenCount);
+        AddParameter(command, "$inputTokenCount", inputTokenCount);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

@@ -29,8 +29,8 @@ public class PersistenceChatHistoryProvider(
         CancellationToken cancellationToken = new CancellationToken())
     {
         var state = this._sessionState.GetOrInitializeState(context.Session);
-        //消息裁剪
-        state.Messages = (await compactionStrategyCoordinator.ReduceAsync(state.Messages, cancellationToken)).ToList();
+        //消息裁剪，使用最近一次调用的真实输入 token 用量作为压缩判断依据
+        state.Messages = (await compactionStrategyCoordinator.ReduceAsync(state.Messages, state.LastInputTokenCount, cancellationToken)).ToList();
         return state.Messages;
     }
 
@@ -84,7 +84,8 @@ public class PersistenceChatHistoryProvider(
                         .Concat(responseMessages)
                         .ToList(),
                     state.Messages.ToList(),
-                    state.TotalUsage),
+                    state.TotalUsage,
+                    state.LastInputTokenCount),
                 cancellationToken);
         }
     }
@@ -145,5 +146,10 @@ public class PersistenceChatHistoryProvider(
 
 
         [JsonIgnore] public long? TotalUsage { get; set; }
+
+        /// <summary>
+        /// 最近一次 LLM 调用的输入 Token 用量，供压缩策略精确判断上下文窗口占用。
+        /// </summary>
+        [JsonIgnore] public long? LastInputTokenCount { get; set; }
     }
 }

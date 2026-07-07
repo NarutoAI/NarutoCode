@@ -17,6 +17,7 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
         await CreateSchemaAsync(connection, cancellationToken);
         await EnsureConversationTokenCountColumnAsync(connection, cancellationToken);
         await EnsureConversationLastUsageTokenCountColumnAsync(connection, cancellationToken);
+        await EnsureConversationLastInputTokenCountColumnAsync(connection, cancellationToken);
         await EnsureMessageVisibilityColumnAsync(connection, cancellationToken);
     }
 
@@ -38,7 +39,8 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
                 "UpdatedAt" TEXT NOT NULL,
                 "WorkDirectory" TEXT NOT NULL,
                 "TokenCount" INTEGER NOT NULL DEFAULT 0,
-                "LastUsageTokenCount" INTEGER NOT NULL DEFAULT 0
+                "LastUsageTokenCount" INTEGER NOT NULL DEFAULT 0,
+                "LastInputTokenCount" INTEGER NOT NULL DEFAULT 0
             );
             """,
             """
@@ -133,6 +135,33 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
 
         await using var alterCommand = connection.CreateCommand();
         alterCommand.CommandText = "ALTER TABLE \"Conversations\" ADD COLUMN \"LastUsageTokenCount\" INTEGER NOT NULL DEFAULT 0;";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 确保旧版本本地数据库包含最近一次输入 Token 数量字段。
+    /// </summary>
+    /// <param name="connection">数据库连接。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private static async Task EnsureConversationLastInputTokenCountColumnAsync(
+        DbConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using (var checkCommand = connection.CreateCommand())
+        {
+            checkCommand.CommandText = "PRAGMA table_info('Conversations');";
+            await using var reader = await checkCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), "LastInputTokenCount", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE \"Conversations\" ADD COLUMN \"LastInputTokenCount\" INTEGER NOT NULL DEFAULT 0;";
         await alterCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 

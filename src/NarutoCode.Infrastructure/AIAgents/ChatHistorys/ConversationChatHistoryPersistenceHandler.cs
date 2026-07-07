@@ -35,6 +35,7 @@ public sealed class ConversationChatHistoryPersistenceHandler(
             context.Messages,
             context.RuntimeMessages,
             context.TotalUsage,
+            context.InputTokenCount,
             cancellationToken);
     }
 }

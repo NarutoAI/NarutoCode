@@ -1,4 +1,4 @@
-using Microsoft.Agents.AI;
+﻿using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
@@ -68,14 +68,25 @@ public static class AgentSessionExtension
         /// </summary>
         /// <param name="sessionId"></param>
         /// <param name="messages">消息记录</param>
+        /// <param name="lastInputTokenCount">数据库记录的最近一次输入 Token 用量，用于恢复压缩判断依据。</param>
         /// <param name="cancellationToken"></param>
         /// <returns></returns>
         public AgentSession CreateSession(ConversationSessionId sessionId, List<ChatMessage> messages,
+            long? lastInputTokenCount = null,
             CancellationToken cancellationToken = default)
         {
             agentSession.StateBag.SetValue(nameof(PersistenceChatHistoryProvider),
                 new PersistenceChatHistoryProvider.State(sessionId.Value, messages: messages),
                 AgentAbstractionsJsonUtilities.DefaultOptions);
+
+            // 恢复会话时，将数据库记录的最近一次输入 token 用量写入状态，供压缩策略使用
+            if (lastInputTokenCount is > 0
+                && agentSession.StateBag.TryGetValue(nameof(PersistenceChatHistoryProvider),
+                    out PersistenceChatHistoryProvider.State? state) && state != null)
+            {
+                state.LastInputTokenCount = lastInputTokenCount;
+            }
+
             return agentSession;
         }
 
@@ -85,6 +96,8 @@ public static class AgentSessionExtension
                     out PersistenceChatHistoryProvider.State? state) && state != null)
             {
                 state.TotalUsage = usage.Details.TotalTokenCount;
+                // 记录最近一次调用的输入 token，供压缩策略判断上下文窗口占用
+                state.LastInputTokenCount = usage.Details.InputTokenCount;
             }
         }
     }

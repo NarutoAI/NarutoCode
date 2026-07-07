@@ -126,7 +126,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
             FROM "Conversations"
             WHERE "Id" = $conversationId
             LIMIT 1;
@@ -274,7 +274,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
             FROM "Conversations"
             WHERE "WorkDirectory" = $workDirectory
             ORDER BY "UpdatedAt" DESC
@@ -301,7 +301,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             UpdatedAt = ReadDateTime(reader, 3),
             WorkDirectory = reader.GetString(4),
             TokenCount = reader.GetInt64(5),
-            LastUsageTokenCount = reader.GetInt64(6)
+            LastUsageTokenCount = reader.GetInt64(6),
+            LastInputTokenCount = reader.GetInt64(7)
         };
     }
 
@@ -313,8 +314,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount")
-            VALUES ($id, $title, $createdAt, $updatedAt, $workDirectory, $tokenCount, $lastUsageTokenCount);
+            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount")
+            VALUES ($id, $title, $createdAt, $updatedAt, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount);
             """;
         AddParameter(command, "$id", conversation.Id);
         AddParameter(command, "$title", conversation.Title);
@@ -323,6 +324,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         AddParameter(command, "$workDirectory", conversation.WorkDirectory);
         AddParameter(command, "$tokenCount", conversation.TokenCount);
         AddParameter(command, "$lastUsageTokenCount", conversation.LastUsageTokenCount);
+        AddParameter(command, "$lastInputTokenCount", conversation.LastInputTokenCount);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

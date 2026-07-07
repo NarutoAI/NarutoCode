@@ -1,4 +1,4 @@
-namespace NarutoCode.Domain.Entities;
+﻿namespace NarutoCode.Domain.Entities;
 
 /// <summary>
 /// 对话实体
@@ -45,4 +45,9 @@ public class Conversation
     /// 最近一次对话 Token 消耗数量。
     /// </summary>
     public long LastUsageTokenCount { get; set; }
+
+    /// <summary>
+    /// 最近一次 LLM 调用的输入 Token 数量，用于压缩策略判断上下文窗口占用。
+    /// </summary>
+    public long LastInputTokenCount { get; set; }
 }

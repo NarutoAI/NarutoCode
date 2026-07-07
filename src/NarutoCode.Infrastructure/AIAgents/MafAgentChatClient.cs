@@ -68,6 +68,9 @@ public class MafAgentChatClient : IAgentChatClient
     {
         var messages = await LoadSessionHistoryMessagesAsync(_conversationRepository, sessionId);
 
+        // 读取会话实体，获取数据库记录的最近一次输入 token 用量
+        var conversation = await _conversationRepository.GetByIdAsync(sessionId.Value);
+
         var session = await _agent.CreateSessionAsync();
         var chatMessages = new List<ChatMessage>(messages.Count);
 
@@ -83,7 +86,7 @@ public class MafAgentChatClient : IAgentChatClient
             chatMessages.Add(itemChatMessage);
         }
 
-        return session.CreateSession(sessionId, PruneIncompleteToolCalls(chatMessages));
+        return session.CreateSession(sessionId, PruneIncompleteToolCalls(chatMessages), conversation?.LastInputTokenCount);
     }
 
     /// <summary>
