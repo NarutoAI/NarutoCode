@@ -24,8 +24,7 @@ public class AgentFactory(
     /// <summary>
     /// 本地shell工具
     /// </summary>
-    private readonly LocalShellExecutor _persistentShell =
-        new(new() {Mode = ShellMode.Persistent, AcknowledgeUnsafe = true});
+    private readonly LocalShellExecutor _persistentShell = ShellExecutorFactory.Create();
 
     /// <summary>
     /// 根据不同的类型 创建不同的agent
@@ -146,12 +145,9 @@ public class AgentFactory(
                     Reasoning = new()
                     {
                         Output = ReasoningOutput.Summary,
-                    },
-                    Tools =
-                    [
-                        _persistentShell.AsAIFunction(requireApproval: AppData.Config.EnableApproval)
-                    ],
+                    }
                 },
+                ShellExecutor = _persistentShell,
                 DisableAgentSkillsProvider = true,
                 AIContextProviders =
                 [

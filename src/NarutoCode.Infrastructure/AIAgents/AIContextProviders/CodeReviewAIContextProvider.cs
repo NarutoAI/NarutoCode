@@ -2,7 +2,6 @@ using System.ComponentModel;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
-using NarutoCode.Infrastructure.JsonSerializerContexts;
 
 namespace NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 
@@ -17,8 +16,7 @@ public class CodeReviewAIContextProvider : AIContextProvider
     /// <summary>
     /// 本地shell工具
     /// </summary>
-    private readonly LocalShellExecutor _persistentShell =
-        new(new() {Mode = ShellMode.Persistent, AcknowledgeUnsafe = true});
+    private readonly LocalShellExecutor _persistentShell = ShellExecutorFactory.Create();
 
     public CodeReviewAIContextProvider(IChatClient chatClient, AIContextProvider[] aiContextProviders)
     {
