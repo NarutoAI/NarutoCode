@@ -1,20 +1,20 @@
 ﻿<Project>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.Agents.AI.Anthropic" Version="1.11.1-preview.260625.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Anthropic" Version="1.13.0-preview.260703.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageVersion Include="ModelContextProtocol" Version="2.0.0-preview.1" />
     <PackageVersion Include="MSTest" Version="4.0.2" />
-    <PackageVersion Include="Microsoft.Agents.AI" Version="1.11.1" />
+    <PackageVersion Include="Microsoft.Agents.AI" Version="1.13.0" />
     <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="1.9.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.Harness" Version="1.11.1-preview.260625.1" />
-    <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.11.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Harness" Version="1.13.0-preview.260703.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.13.0" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
     <PackageVersion Include="Serilog" Version="4.3.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Async" Version="2.1.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageVersion Include="Spectre.Console" Version="0.57.1" />
+    <PackageVersion Include="Spectre.Console" Version="0.57.2" />
     <PackageVersion Include="Spectre.Console.ImageSharp" Version="0.56.0" />
   </ItemGroup>
 </Project>

@@ -11,6 +11,7 @@ using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.AIAgents.LoopEvaluators;
 using NarutoCode.Infrastructure.AIAgents.Mcp;
+using NarutoCode.Infrastructure.AIAgents.Skills;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
@@ -37,7 +38,7 @@ public class AgentFactory(
 #pragma warning disable MAAI001
             new AgentSkillsProvider([
                 ProjectConstant.SkillsDirectory
-            ]);
+            ],scriptRunner:SkillSubprocessScriptRunner.RunAsync,loggerFactory:loggerFactory);
 
 
         //持久化

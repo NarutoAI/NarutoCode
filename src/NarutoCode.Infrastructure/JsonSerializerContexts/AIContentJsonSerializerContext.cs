@@ -87,7 +87,7 @@ internal sealed partial class AIContentJsonSerializerContext : JsonSerializerCon
     {
         return JsonSerializer.Serialize(contents, Default.IListAIContent);
     }
-    
+
     /// <summary>
     /// 
     /// </summary>
@@ -100,11 +100,30 @@ internal sealed partial class AIContentJsonSerializerContext : JsonSerializerCon
 
         return JsonSerializer.Deserialize(modelContent, Default.ToolApprovalRequestContent) ?? default;
     }
+
     /// <summary>
     /// </summary>
     public static string SerializeToolApprovalRequestContent(ToolApprovalRequestContent content)
     {
-
         return JsonSerializer.Serialize(content, Default.ToolApprovalRequestContent);
+    }
+
+    public static bool TryDeserializeArrayString(string arrStr, out string[]? result)
+    {
+        result = null;
+        if (string.IsNullOrWhiteSpace(arrStr))
+        {
+            return false;
+        }
+
+        try
+        {
+            result = JsonSerializer.Deserialize(arrStr, Default.StringArray) ?? default;
+            return true;
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
     }
 }
