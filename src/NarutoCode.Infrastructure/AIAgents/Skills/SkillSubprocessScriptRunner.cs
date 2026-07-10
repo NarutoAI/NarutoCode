@@ -39,6 +39,7 @@ internal static class SkillSubprocessScriptRunner
             ".js" => "node",
             ".sh" => "bash",
             ".ps1" => "pwsh",
+            ".cs" => "dotnet",
             _ => null,
         };
 
@@ -79,7 +80,7 @@ internal static class SkillSubprocessScriptRunner
         //校验参数是否为数组字符串
         else if (arguments is {ValueKind: JsonValueKind.String} arrStr &&
                  AIContentJsonSerializerContext.TryDeserializeArrayString(arrStr.GetString(), out var result) &&
-                 result is {Length: > 0})
+                 result!=null)
         {
             foreach (var item in result)
             {
