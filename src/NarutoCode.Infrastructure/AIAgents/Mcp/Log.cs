@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 
 namespace NarutoCode.Infrastructure.AIAgents.Mcp;
 
@@ -36,4 +36,10 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "MCP 服务 {ServerName} 的工作目录不存在：{WorkingDirectory}")]
     public static partial void McpServerWorkingDirectoryNotFound(ILogger logger, string serverName, string workingDirectory);
+
+    [LoggerMessage(
+        EventId = 5,
+        Level = LogLevel.Warning,
+        Message = "MCP HTTP 服务 {ServerName} 的 URL 无效：{Url}")]
+    public static partial void InvalidMcpHttpServerUrl(ILogger logger, string serverName, string? url);
 }

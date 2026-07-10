@@ -8,7 +8,9 @@ namespace NarutoCode.Infrastructure.AIAgents.Mcp;
 /// <summary>
 /// 管理 MCP 客户端连接，并把远端 MCP tools 转换为当前 Agent 可调用的 AI 工具。
 /// </summary>
-public sealed class McpClientManager(ILogger<McpClientManager> logger) : IAsyncDisposable
+public sealed class McpClientManager(
+    ILogger<McpClientManager> logger,
+    ILoggerFactory loggerFactory) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private readonly List<McpClient> _clients = [];
@@ -76,7 +78,12 @@ public sealed class McpClientManager(ILogger<McpClientManager> logger) : IAsyncD
         CancellationToken cancellationToken)
     {
         //参数校验
-        if (!TryValidateConfiguration(serverName, configuration, out var safeServerName, out var workingDirectory))
+        if (!TryValidateConfiguration(
+                serverName,
+                configuration,
+                out var safeServerName,
+                out var workingDirectory,
+                out var httpEndpoint))
         {
             return null;
         }
@@ -84,10 +91,11 @@ public sealed class McpClientManager(ILogger<McpClientManager> logger) : IAsyncD
         McpClient? client = null;
         try
         {
-            var transport = CreateStdioTransport(
+            var transport = CreateTransport(
                 safeServerName,
                 configuration,
-                workingDirectory);
+                workingDirectory,
+                httpEndpoint);
 
             client = await McpClient.CreateAsync(
                 transport,
@@ -111,27 +119,41 @@ public sealed class McpClientManager(ILogger<McpClientManager> logger) : IAsyncD
     }
 
     /// <summary>
-    /// 创建stdio的传输协议配置
+    /// 根据服务配置创建 MCP 客户端传输协议。
     /// </summary>
-    /// <param name="safeServerName"></param>
-    /// <param name="configuration"></param>
-    /// <param name="workingDirectory"></param>
-    /// <returns></returns>
-    private static StdioClientTransport CreateStdioTransport(
+    /// <param name="safeServerName">用于日志和工具名称的服务名称。</param>
+    /// <param name="configuration">已完成校验的服务配置。</param>
+    /// <param name="workingDirectory">stdio 服务的工作目录。</param>
+    /// <param name="httpEndpoint">HTTP 服务端点。</param>
+    /// <returns>MCP 客户端传输协议。</returns>
+    private IClientTransport CreateTransport(
         string safeServerName,
         McpServerConfiguration configuration,
-        string? workingDirectory)
+        string? workingDirectory,
+        Uri? httpEndpoint)
     {
-        return new StdioClientTransport(new StdioClientTransportOptions
+        if (string.Equals(configuration.Type, "stdio", StringComparison.OrdinalIgnoreCase))
+        {
+            return new StdioClientTransport(new StdioClientTransportOptions
+            {
+                Name = safeServerName,
+                Command = configuration.Command,
+                Arguments = configuration.Args,
+                WorkingDirectory = workingDirectory,
+                EnvironmentVariables = configuration.Env.Count == 0
+                    ? null
+                    : configuration.Env.ToDictionary(static item => item.Key, static item => (string?)item.Value)
+            });
+        }
+
+        return new HttpClientTransport(new HttpClientTransportOptions
         {
             Name = safeServerName,
-            Command = configuration.Command,
-            Arguments = configuration.Args,
-            WorkingDirectory = workingDirectory,
-            EnvironmentVariables = configuration.Env.Count == 0
+            Endpoint = httpEndpoint!,
+            AdditionalHeaders = configuration.Headers.Count == 0
                 ? null
-                : configuration.Env.ToDictionary(static item => item.Key, static item => (string?) item.Value)
-        });
+                : configuration.Headers
+        }, loggerFactory);
     }
 
     private IReadOnlyList<AITool> CreateExposedTools(
@@ -207,10 +229,24 @@ public sealed class McpClientManager(ILogger<McpClientManager> logger) : IAsyncD
         string serverName,
         McpServerConfiguration configuration,
         out string safeServerName,
-        out string? workingDirectory)
+        out string? workingDirectory,
+        out Uri? httpEndpoint)
     {
         safeServerName = serverName.Trim();
         workingDirectory = null;
+        httpEndpoint = null;
+
+        if (string.Equals(configuration.Type, "http", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Uri.TryCreate(configuration.Url, UriKind.Absolute, out httpEndpoint) ||
+                (httpEndpoint.Scheme != Uri.UriSchemeHttp && httpEndpoint.Scheme != Uri.UriSchemeHttps))
+            {
+                Log.InvalidMcpHttpServerUrl(logger, serverName, configuration.Url);
+                return false;
+            }
+
+            return true;
+        }
 
         if (!string.Equals(configuration.Type, "stdio", StringComparison.OrdinalIgnoreCase))
         {

@@ -11,6 +11,7 @@ namespace NarutoCode.Domain.Configurations;
 [JsonSerializable(typeof(AppConfiguration))]
 [JsonSerializable(typeof(AppSettings))]
 [JsonSerializable(typeof(McpServerConfiguration))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 internal partial class AppConfigurationContext : JsonSerializerContext
 {
 }
@@ -47,19 +48,29 @@ public sealed class AppConfiguration
 }
 
 /// <summary>
-/// MCP 服务配置，第一版仅支持 stdio 类型。
+/// MCP 服务配置，支持 stdio 与 HTTP 传输类型。
 /// </summary>
 public sealed class McpServerConfiguration
 {
     /// <summary>
-    /// MCP 服务传输类型，第一版仅支持 stdio。
+    /// MCP 服务传输类型，支持 stdio 与 http。
     /// </summary>
     public string Type { get; set; } = "stdio";
 
     /// <summary>
-    /// MCP 服务启动命令。
+    /// MCP 服务启动命令，仅适用于 stdio 类型。
     /// </summary>
     public string Command { get; set; } = string.Empty;
+
+    /// <summary>
+    /// MCP HTTP 服务端点，仅适用于 http 类型，必须为绝对 HTTP 或 HTTPS URL。
+    /// </summary>
+    public string? Url { get; set; }
+
+    /// <summary>
+    /// MCP HTTP 服务请求头，仅适用于 http 类型。
+    /// </summary>
+    public Dictionary<string, string> Headers { get; set; } = [];
 
     /// <summary>
     /// MCP 服务启动参数。

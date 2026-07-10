@@ -12,6 +12,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
+        <ProjectReference Include="..\..\src\NarutoCodeCli\NarutoCodeCli.csproj" />
     </ItemGroup>
 
     <ItemGroup>
