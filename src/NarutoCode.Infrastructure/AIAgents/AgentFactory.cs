@@ -194,11 +194,11 @@ public class AgentFactory(
                     AutoApprovalRules = [ToolApprovalAgent.AllToolsAutoApprovalRule]//todo 暂时设置所有工具调用开启自动审批
                 },
                 //Loop评估器 
-                LoopEvaluators = [new TaskLoopEvaluator(),new TodoCompletionLoopEvaluator(new TodoCompletionLoopEvaluatorOptions
+                LoopEvaluators = [new TodoCompletionLoopEvaluator(new TodoCompletionLoopEvaluatorOptions
                 {
                     //只允许执行下的todo 没有完成的话，继续循环执行
                     Modes = ["execute"],
-                })]
+                },new TaskLoopEvaluator())]
                 //文件处理
                 // FileAccessStore = new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
             },loggerFactory: loggerFactory);
