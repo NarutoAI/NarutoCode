@@ -198,7 +198,7 @@ public class AgentFactory(
                 {
                     //只允许执行下的todo 没有完成的话，继续循环执行
                     Modes = ["execute"],
-                },new TaskLoopEvaluator())]
+                }),new TaskLoopEvaluator()]
                 //文件处理
                 // FileAccessStore = new FileSystemAgentFileStore(workspaceContextAccessor.Current.WorkingDirectory),
             },loggerFactory: loggerFactory);
