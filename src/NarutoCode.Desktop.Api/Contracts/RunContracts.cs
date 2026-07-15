@@ -1,4 +1,6 @@
-﻿namespace NarutoCode.Desktop.Api.Contracts;
+﻿using System.Text.Json.Serialization;
+
+namespace NarutoCode.Desktop.Api.Contracts;
 
 /// <summary>
 /// 启动 Run 请求。
@@ -28,11 +30,11 @@ public sealed record ResolveApprovalRequest(bool Approved);
 /// SSE 事件 DTO。
 /// </summary>
 public sealed record RunEventDto(
-    string RunId,
-    long Sequence,
-    string EventType,
-    DateTimeOffset Timestamp,
-    string? Content,
-    string? MessageType,
-    string? ApprovalContent,
-    string? ApprovalId);
+    [property: JsonPropertyName("runId")] string RunId,
+    [property: JsonPropertyName("sequence")] long Sequence,
+    [property: JsonPropertyName("eventType")] string EventType,
+    [property: JsonPropertyName("timestamp")] DateTimeOffset Timestamp,
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("messageType")] string? MessageType,
+    [property: JsonPropertyName("approvalContent")] string? ApprovalContent,
+    [property: JsonPropertyName("approvalId")] string? ApprovalId);

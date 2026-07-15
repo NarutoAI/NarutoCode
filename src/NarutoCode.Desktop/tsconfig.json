@@ -1,0 +1,15 @@
+﻿{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "noImplicitAny": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "resolveJsonModule": true
+  }
+}

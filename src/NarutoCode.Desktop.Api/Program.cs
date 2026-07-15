@@ -12,7 +12,9 @@ using NarutoCode.Desktop.Api.Hosting;
 using NarutoCode.Desktop.Api.Runs;
 using NarutoCode.Desktop.Api.Serialization;
 using NarutoCode.Desktop.Api.Security;
+using NarutoCode.Desktop.Api.Workspaces;
 using NarutoCode.Domain;
+using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure;
 
 // 解析启动参数并设置应用数据目录，必须在 AddInfrastructure 之前完成
@@ -27,6 +29,9 @@ var builder = WebApplication.CreateSlimBuilder(args);
 // 仅绑定回环地址，端口由 Electron Main 分配
 builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, options.Port));
 builder.Services.AddSingleton(options);
+builder.Services.AddSingleton<DesktopWorkspaceContextAccessor>();
+builder.Services.AddSingleton<IWorkspaceContextAccessor>(serviceProvider =>
+    serviceProvider.GetRequiredService<DesktopWorkspaceContextAccessor>());
 builder.Services.AddHostedService<ParentProcessMonitor>();
 
 // 复用 Infrastructure 层注册，使用桌面端专属日志文件名

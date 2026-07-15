@@ -21,4 +21,7 @@ internal static partial class Log
 
     [LoggerMessage(1004, LogLevel.Error, "Desktop API server error: {Code}.")]
     public static partial void DesktopApiServerError(ILogger logger, string code, Exception exception);
+
+    [LoggerMessage(1005, LogLevel.Information, "Run {RunId} emitted event {Sequence} ({EventType}).")]
+    public static partial void RunEventEmitted(ILogger logger, string runId, long sequence, string eventType);
 }

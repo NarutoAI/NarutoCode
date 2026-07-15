@@ -1,6 +1,8 @@
 ﻿using NarutoCode.Domain.Conversations;
+using NarutoCode.Domain.Entities;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Desktop.Api.Runs;
+using NarutoCode.Desktop.Api.Workspaces;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace NarutoCode.Desktop.Api.Tests;
@@ -22,7 +24,7 @@ public sealed class DesktopRunCoordinatorTests
         [
             new AgentMessage(AgentMessageType.Content, "hello"),
         ];
-        var coordinator = new DesktopRunCoordinator(service, NullLogger<DesktopRunCoordinator>.Instance);
+        var coordinator = new DesktopRunCoordinator(service, new FakeConversationRepository(), new DesktopWorkspaceContextAccessor(), NullLogger<DesktopRunCoordinator>.Instance);
 
         var run = await coordinator.StartAsync(new ConversationSessionId(1),
             new AgentMessage(AgentMessageType.Content, "hi"), default);
@@ -30,6 +32,63 @@ public sealed class DesktopRunCoordinatorTests
         // 等待后台泵完成
         await Task.Delay(200);
         Assert.AreEqual(DesktopRunStatus.Completed, run.Status);
+    }
+
+    /// <summary>
+    /// Run 在订阅建立前完成时，仍可读取正文和完成终态事件。
+    /// </summary>
+    [TestMethod]
+    public async Task ReadEventsAsync_AfterRunCompleted_ReturnsTerminalEvent()
+    {
+        var service = new FakeConversationService
+        {
+            ScriptMessages = [new AgentMessage(AgentMessageType.Content, "hello")]
+        };
+        var coordinator = new DesktopRunCoordinator(service, new FakeConversationRepository(), new DesktopWorkspaceContextAccessor(), NullLogger<DesktopRunCoordinator>.Instance);
+
+        var run = await coordinator.StartAsync(new ConversationSessionId(1),
+            new AgentMessage(AgentMessageType.Content, "hi"), default);
+        await Task.Delay(100);
+
+        var events = new List<RunEvent>();
+        await foreach (var item in coordinator.ReadEventsAsync(run.RunId, default))
+        {
+            events.Add(item);
+        }
+
+        CollectionAssert.AreEqual(
+            new[] { "message.delta", "run.completed" },
+            events.Select(item => item.EventType).ToArray());
+    }
+
+    /// <summary>
+    /// 非正文 Agent 消息不会映射为消息正文。
+    /// </summary>
+    [TestMethod]
+    public async Task ReadEventsAsync_NonContentMessages_UseDedicatedEventTypes()
+    {
+        var service = new FakeConversationService
+        {
+            ScriptMessages =
+            [
+                new AgentMessage(AgentMessageType.Temporary, "preparing"),
+                new AgentMessage(AgentMessageType.ToolCall, "mode_get"),
+                new AgentMessage(AgentMessageType.Usage, "42"),
+            ]
+        };
+        var coordinator = new DesktopRunCoordinator(service, new FakeConversationRepository(), new DesktopWorkspaceContextAccessor(), NullLogger<DesktopRunCoordinator>.Instance);
+
+        var run = await coordinator.StartAsync(new ConversationSessionId(1),
+            new AgentMessage(AgentMessageType.Content, "hi"), default);
+        var eventTypes = new List<string>();
+        await foreach (var item in coordinator.ReadEventsAsync(run.RunId, default))
+        {
+            eventTypes.Add(item.EventType);
+        }
+
+        CollectionAssert.AreEqual(
+            new[] { "status.updated", "tool.started", "usage.updated", "run.completed" },
+            eventTypes.ToArray());
     }
 
     /// <summary>
@@ -42,7 +101,7 @@ public sealed class DesktopRunCoordinatorTests
         // 永不完成的流，保持活跃
         service.ScriptMessages = [new AgentMessage(AgentMessageType.Content, "working")];
         service.NeverComplete = true;
-        var coordinator = new DesktopRunCoordinator(service, NullLogger<DesktopRunCoordinator>.Instance);
+        var coordinator = new DesktopRunCoordinator(service, new FakeConversationRepository(), new DesktopWorkspaceContextAccessor(), NullLogger<DesktopRunCoordinator>.Instance);
 
         await coordinator.StartAsync(new ConversationSessionId(1),
             new AgentMessage(AgentMessageType.Content, "hi"), default);
@@ -61,7 +120,7 @@ public sealed class DesktopRunCoordinatorTests
         var service = new FakeConversationService();
         service.ScriptMessages = [new AgentMessage(AgentMessageType.Content, "working")];
         service.NeverComplete = true;
-        var coordinator = new DesktopRunCoordinator(service, NullLogger<DesktopRunCoordinator>.Instance);
+        var coordinator = new DesktopRunCoordinator(service, new FakeConversationRepository(), new DesktopWorkspaceContextAccessor(), NullLogger<DesktopRunCoordinator>.Instance);
 
         var run = await coordinator.StartAsync(new ConversationSessionId(1),
             new AgentMessage(AgentMessageType.Content, "hi"), default);
@@ -81,7 +140,7 @@ public sealed class DesktopRunCoordinatorTests
         [
             new AgentMessage(AgentMessageType.Error, "boom"),
         ];
-        var coordinator = new DesktopRunCoordinator(service, NullLogger<DesktopRunCoordinator>.Instance);
+        var coordinator = new DesktopRunCoordinator(service, new FakeConversationRepository(), new DesktopWorkspaceContextAccessor(), NullLogger<DesktopRunCoordinator>.Instance);
 
         var run = await coordinator.StartAsync(new ConversationSessionId(1),
             new AgentMessage(AgentMessageType.Content, "hi"), default);
@@ -93,6 +152,19 @@ public sealed class DesktopRunCoordinatorTests
     /// <summary>
     /// 假会话服务，按脚本输出消息。
     /// </summary>
+    private sealed class FakeConversationRepository : IConversationRepository
+    {
+        public Task<Conversation?> GetByIdAsync(long conversationId, CancellationToken ct = default)
+            => Task.FromResult<Conversation?>(new Conversation { Id = conversationId, WorkDirectory = Path.GetTempPath() });
+        public Task<Conversation> GetOrCreateByWorkDirectoryAsync(string workDirectory, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ConversationSummary>> ListByWorkDirectoryAsync(string workDirectory, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Conversation> CreateForWorkDirectoryAsync(string workDirectory, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Message>> ListMessagesWithUIAsync(long conversationId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Message>> ListMessagesAsync(long conversationId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Message>> ListRuntimeMessagesAsync(long conversationId, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
     private sealed class FakeConversationService : IConversationService
     {
         public IReadOnlyList<AgentMessage> ScriptMessages { get; set; } = [];

@@ -2,6 +2,7 @@
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
+using NarutoCode.Desktop.Api.Workspaces;
 
 namespace NarutoCode.Desktop.Api.Runs;
 
@@ -10,6 +11,8 @@ namespace NarutoCode.Desktop.Api.Runs;
 /// </summary>
 internal sealed class DesktopRunCoordinator(
     IConversationService conversationService,
+    IConversationRepository conversationRepository,
+    DesktopWorkspaceContextAccessor workspaceContextAccessor,
     ILogger<DesktopRunCoordinator> logger) : IDesktopRunCoordinator
 {
     // runId → Run
@@ -101,9 +104,8 @@ internal sealed class DesktopRunCoordinator(
         run.Status = DesktopRunStatus.Cancelled;
         run.Cancel();
 
-        // 重置运行时会话并清理索引
+        // 重置运行时会话并清理活跃索引；Run 保留到 SSE 读取端消费完终态事件。
         _activeByConversation.TryRemove(run.ConversationId, out _);
-        _runs.TryRemove(runId, out _);
 
         return conversationService.ResetRuntimeSessionAsync(
             new ConversationSessionId(run.ConversationId), cancellationToken);
@@ -119,6 +121,12 @@ internal sealed class DesktopRunCoordinator(
     {
         try
         {
+            var conversation = await conversationRepository.GetByIdAsync(
+                conversationId.Value,
+                run.RunToken) ?? throw new ConversationNotFoundException(conversationId.Value);
+
+            // 每个 Run 在其自身异步流内使用会话所属工作目录，避免跨项目串目录。
+            using var workspaceScope = workspaceContextAccessor.Push(conversation.WorkDirectory);
             await foreach (var agentMessage in conversationService.SendMessageAsync(
                 conversationId, userMessage, run.RunToken))
             {
@@ -143,6 +151,12 @@ internal sealed class DesktopRunCoordinator(
                         : null);
             }
 
+            // 等待审批时保留事件通道和 Run；审批完成后会继续使用同一个 Run 泵送。
+            if (run.Status == DesktopRunStatus.WaitingApproval)
+            {
+                return;
+            }
+
             // 正常结束
             if (run.Status != DesktopRunStatus.Cancelled &&
                 run.Status != DesktopRunStatus.Failed)
@@ -163,10 +177,12 @@ internal sealed class DesktopRunCoordinator(
         }
         finally
         {
-            // 无论成功失败，都完成通道并清理活跃索引
-            run.Writer.TryComplete();
-            _activeByConversation.TryRemove(run.ConversationId, out _);
-            _runs.TryRemove(run.RunId, out _);
+            // 等待审批不是终态，必须保留通道和活跃索引供审批后继续执行。
+            if (run.Status != DesktopRunStatus.WaitingApproval)
+            {
+                run.Writer.TryComplete();
+                _activeByConversation.TryRemove(run.ConversationId, out _);
+            }
         }
     }
 
@@ -186,7 +202,10 @@ internal sealed class DesktopRunCoordinator(
             DateTimeOffset.UtcNow,
             message,
             approvalId);
-        run.Writer.TryWrite(evt);
+        if (run.Writer.TryWrite(evt))
+        {
+            Log.RunEventEmitted(logger, evt.RunId, evt.Sequence, evt.EventType);
+        }
     }
 
     /// <summary>
@@ -197,21 +216,37 @@ internal sealed class DesktopRunCoordinator(
         AgentMessageType.Content => "message.delta",
         AgentMessageType.Thinking => "thinking.delta",
         AgentMessageType.ToolCall => "tool.started",
+        AgentMessageType.Plan => "plan.delta",
+        AgentMessageType.RemainingTask => "status.updated",
         AgentMessageType.ToolApprovalRequest => "approval.required",
+        AgentMessageType.ToolApprovalResponse => "approval.resolved",
+        AgentMessageType.Usage => "usage.updated",
+        AgentMessageType.Temporary => "status.updated",
         AgentMessageType.Error => "run.failed",
-        _ => "message.delta"
+        _ => "status.updated"
     };
 
     /// <summary>
     /// 从通道读取事件并转为异步枚举。
     /// </summary>
-    private static async IAsyncEnumerable<RunEvent> ReadChannelAsync(
+    private async IAsyncEnumerable<RunEvent> ReadChannelAsync(
         DesktopRun run,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var item in run.Reader.ReadAllAsync(cancellationToken))
+        try
         {
-            yield return item;
+            await foreach (var item in run.Reader.ReadAllAsync(cancellationToken))
+            {
+                yield return item;
+            }
+        }
+        finally
+        {
+            // 读取端退出后才释放 Run，确保短 Run 的终态事件可被稍后建立的 SSE 订阅消费。
+            if (run.Status is DesktopRunStatus.Completed or DesktopRunStatus.Cancelled or DesktopRunStatus.Failed)
+            {
+                _runs.TryRemove(run.RunId, out _);
+            }
         }
     }
 }

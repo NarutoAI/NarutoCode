@@ -1,5 +1,7 @@
-﻿using Microsoft.AspNetCore.Diagnostics;
+﻿using System.Text.Json;
+using Microsoft.AspNetCore.Diagnostics;
 using NarutoCode.Desktop.Api.Runs;
+using NarutoCode.Desktop.Api.Serialization;
 
 namespace NarutoCode.Desktop.Api.Errors;
 
@@ -27,8 +29,11 @@ internal sealed class DesktopApiExceptionHandler(
         }
 
         httpContext.Response.StatusCode = statusCode;
-        await httpContext.Response.WriteAsJsonAsync(
+        httpContext.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(
+            httpContext.Response.Body,
             new ApiErrorResponse(code, message, traceId, null),
+            DesktopApiJsonSerializerContext.Default.ApiErrorResponse,
             cancellationToken);
 
         return true;
