@@ -93,7 +93,34 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         return summaries;
     }
 
-    
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT "WorkDirectory", MAX("UpdatedAt"), COUNT("Id")
+            FROM "Conversations"
+            WHERE "WorkDirectory" <> ''
+            GROUP BY "WorkDirectory"
+            ORDER BY MAX("UpdatedAt") DESC;
+            """;
+
+        var workspaces = new List<WorkspaceSummary>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            workspaces.Add(new WorkspaceSummary(
+                reader.GetString(0),
+                ReadDateTime(reader, 1),
+                Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture)));
+        }
+
+        return workspaces;
+    }
+
     public async Task<Conversation> CreateForWorkDirectoryAsync(
         string workDirectory,
         CancellationToken cancellationToken = default)

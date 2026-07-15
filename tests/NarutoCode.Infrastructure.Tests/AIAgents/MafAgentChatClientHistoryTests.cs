@@ -87,6 +87,9 @@ public sealed class MafAgentChatClientHistoryTests
             string workDirectory,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task<Conversation> CreateForWorkDirectoryAsync(
             string workDirectory,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();

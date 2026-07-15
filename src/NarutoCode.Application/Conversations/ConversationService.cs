@@ -1,9 +1,10 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using NarutoCode.Application.Agents;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
 using NarutoCode.Domain.Messages;
+using NarutoCode.Domain.Workspaces;
 
 namespace NarutoCode.Application.Conversations;
 
@@ -83,6 +84,33 @@ public class ConversationService(
         CancellationToken cancellationToken = default)
     {
         return agentChatClient.ResetRuntimeSessionAsync(sessionId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // 直接委托给仓储聚合查询，保持服务层薄透传
+        return conversationRepository.ListWorkspacesAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<OpenWorkspaceResult> OpenWorkspaceAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        // 规范化为绝对路径，确保跨宿主一致
+        var normalizedPath = WorkspacePath.Normalize(workDirectory);
+        // 查询该工作区下已有会话，取最近一条
+        var existing = (await conversationRepository.ListByWorkDirectoryAsync(normalizedPath, cancellationToken))
+            .FirstOrDefault();
+
+        // 存在会话则加载历史，不存在则创建首个会话
+        var history = existing is null
+            ? await CreateWorkspaceConversationAsync(normalizedPath, cancellationToken)
+            : await LoadConversationHistoryAsync(new ConversationSessionId(existing.Id), cancellationToken);
+
+        return new OpenWorkspaceResult(history, existing is null);
     }
 
     private static ConversationHistoryMessage ToHistoryMessage(Message message)

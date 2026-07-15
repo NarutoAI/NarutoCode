@@ -28,6 +28,14 @@ public interface IConversationRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 按最近更新时间倒序列出包含历史会话的工作区。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>按工作目录聚合的工作区摘要集合。</returns>
+    Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 为当前工作目录显式创建一个新会话。
     /// </summary>
     /// <param name="workDirectory">当前工作目录。</param>

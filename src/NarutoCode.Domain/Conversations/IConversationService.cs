@@ -69,4 +69,22 @@ public interface IConversationService
     Task ResetRuntimeSessionAsync(
         ConversationSessionId sessionId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按最近更新时间倒序列出包含历史会话的工作区。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>按工作目录聚合的工作区摘要集合。</returns>
+    Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 规范化工作目录并幂等打开：存在会话时加载最近一条，否则创建首个会话。
+    /// </summary>
+    /// <param name="workDirectory">待打开的工作目录。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>打开后的会话历史及是否新建标志。</returns>
+    Task<OpenWorkspaceResult> OpenWorkspaceAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default);
 }

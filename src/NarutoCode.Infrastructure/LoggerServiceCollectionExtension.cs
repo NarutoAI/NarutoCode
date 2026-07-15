@@ -14,13 +14,14 @@ internal static class LoggerServiceCollectionExtension
     extension(IServiceCollection service)
     {
         /// <summary>
-        /// 注册日志
+        /// 注册日志，可指定滚动日志文件名前缀。
         /// </summary>
-        public void AddLogger()
+        /// <param name="logFileName">日志文件名前缀，默认 <c>.log</c>。</param>
+        public void AddLogger(string logFileName = ".log")
         {
             var loggerConfiguration = new LoggerConfiguration();
             loggerConfiguration.MinimumLevel.Is(ResolveMinimumLogLevel());
-            loggerConfiguration.AddFile();
+            loggerConfiguration.AddFile(logFileName);
 
             Log.Logger = loggerConfiguration
                 .CreateLogger();
@@ -46,10 +47,10 @@ internal static class LoggerServiceCollectionExtension
         };
     }
 
-    private static void AddFile(this LoggerConfiguration loggerConfiguration)
+    private static void AddFile(this LoggerConfiguration loggerConfiguration, string logFileName)
     {
         loggerConfiguration.WriteTo.Async(a => a.File(
-            Path.Combine(Path.Combine(ProjectConstant.AppDirectory, FileLogDirectory), ".log"),
+            Path.Combine(Path.Combine(ProjectConstant.AppDirectory, FileLogDirectory), logFileName),
             rollingInterval: RollingInterval.Day,
             rollOnFileSizeLimit: true
         ));

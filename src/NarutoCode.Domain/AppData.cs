@@ -8,8 +8,9 @@ namespace NarutoCode.Domain;
 /// </summary>
 public static class AppData
 {
-    private static readonly string ConfigurationFilePath = BuildDefaultConfigurationFilePath();
     private static AppConfiguration? config;
+
+    private static string ConfigurationFilePath => BuildDefaultConfigurationFilePath();
 
     /// <summary>
     /// 当前程序配置。
@@ -54,6 +55,14 @@ public static class AppData
         ValidateLlmConfigurations(configuration.Llms);
 
         config = configuration;
+    }
+
+    /// <summary>
+    /// 清除当前进程内缓存的配置，供测试宿主切换临时配置目录。
+    /// </summary>
+    internal static void ResetForTesting()
+    {
+        config = null;
     }
 
     private static void EnsureLlmConfigurationsExists(IReadOnlyCollection<LlmConfiguration> llms)

@@ -28,7 +28,8 @@ public static class InfrastructureServiceCollectionExtension
         /// <summary>
         /// 注册基础设施层服务，包括应用层依赖、LLM 协议工厂和当前配置对应的聊天客户端。
         /// </summary>
-        public async Task AddInfrastructure()
+        /// <param name="logFileName">日志文件名前缀，CLI 保持默认 <c>.log</c>，桌面端传 <c>desktop-api-.log</c>。</param>
+        public async Task AddInfrastructure(string logFileName = ".log")
         {
             await services.AddApplication();
 
@@ -60,7 +61,7 @@ public static class InfrastructureServiceCollectionExtension
             services.AddSingleton<IConversationRepository, ConversationRepository>();
             services.AddSingleton<DbInitializer>();
             services.AddLogging();
-            services.AddLogger();
+            services.AddLogger(logFileName);
 
             var dataDirectory = Path.Combine(ProjectConstant.AppDirectory, ProjectConstant.DataDirectory);
             if (!Directory.Exists(dataDirectory))

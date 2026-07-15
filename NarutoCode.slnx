@@ -1,4 +1,4 @@
-<Solution>
+﻿<Solution>
   <Folder Name="/solution/">
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
@@ -9,8 +9,11 @@
     <Project Path="src/NarutoCode.Domain/NarutoCode.Domain.csproj" />
     <Project Path="src/NarutoCodeCli/NarutoCodeCli.csproj" />
     <Project Path="src\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
+    <Project Path="src/NarutoCode.Desktop.Api/NarutoCode.Desktop.Api.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="tests/NarutoCode.Application.Tests/NarutoCode.Application.Tests.csproj" />
     <Project Path="tests/NarutoCode.Infrastructure.Tests/NarutoCode.Infrastructure.Tests.csproj" />
+    <Project Path="tests/NarutoCode.Desktop.Api.Tests/NarutoCode.Desktop.Api.Tests.csproj" />
   </Folder>
 </Solution>
