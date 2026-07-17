@@ -22,7 +22,8 @@ describe('App', () => {
     api.listWorkspaces.mockResolvedValue([])
     render(<App />)
     expect(await screen.findByText('把代码任务放进一个项目')).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '添加项目' })).not.toHaveLength(0)
+    expect(screen.getByRole('button', { name: '新建对话' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '添加项目' })).toBeInTheDocument()
   })
 
   it('renders startup retry and logs controls when backend cannot start', async () => {
@@ -91,22 +92,30 @@ describe('App', () => {
 
     act(() => {
       onEvent?.({ runId: 'run-1', sequence: 1, eventType: 'thinking.delta', content: '分析需求', approvalId: null })
+    })
+    expect(screen.getByRole('button', { name: /思考过程/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('分析需求')).toBeInTheDocument()
+
+    act(() => {
       onEvent?.({ runId: 'run-1', sequence: 2, eventType: 'tool.started', content: '读取 src/App.tsx', approvalId: null })
-      onEvent?.({ runId: 'run-1', sequence: 3, eventType: 'message.delta', content: '## 已完成\n\n- 支持 **Markdown**', approvalId: null })
-      onEvent?.({ runId: 'run-1', sequence: 4, eventType: 'approval.required', content: null, approvalId: 'approval-1' })
+    })
+    expect(screen.getByRole('button', { name: /思考过程/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: /读取 src\/App\.tsx/ })).toHaveAttribute('aria-expanded', 'true')
+
+    act(() => {
+      onEvent?.({ runId: 'run-1', sequence: 3, eventType: 'tool.completed', content: null, approvalId: null })
+      onEvent?.({ runId: 'run-1', sequence: 4, eventType: 'message.delta', content: '## 已完成\n\n- 支持 **Markdown**', approvalId: null })
+      onEvent?.({ runId: 'run-1', sequence: 5, eventType: 'approval.required', content: null, approvalId: 'approval-1' })
     })
 
+    expect(screen.getByRole('button', { name: /读取 src\/App\.tsx/ })).toHaveAttribute('aria-expanded', 'false')
     expect(await screen.findByRole('heading', { name: '已完成' })).toBeInTheDocument()
-    expect(screen.getByText('思考过程')).toBeInTheDocument()
-    expect(screen.getByText('读取 src/App.tsx')).toBeInTheDocument()
     expect(screen.getByText('等待工具授权')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('思考过程'))
-    expect(screen.getByText('分析需求')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '允许执行' }))
     await waitFor(() => expect(api.resolveApproval).toHaveBeenCalledWith('run-1', 'approval-1', true))
 
     act(() => {
-      onEvent?.({ runId: 'run-1', sequence: 5, eventType: 'run.completed', content: null, approvalId: null })
+      onEvent?.({ runId: 'run-1', sequence: 6, eventType: 'run.completed', content: null, approvalId: null })
     })
     await waitFor(() => expect(screen.queryByRole('button', { name: '取消运行' })).not.toBeInTheDocument())
     expect(screen.queryByText('正在启动任务')).not.toBeInTheDocument()

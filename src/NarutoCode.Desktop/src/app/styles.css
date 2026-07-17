@@ -12,46 +12,34 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .42; }
 
-.desktop-shell { display: grid; grid-template-columns: 284px minmax(0, 1fr); width: 100%; height: 100%; min-height: 0; overflow: hidden; background: #f7f8f5; }
-.sidebar { z-index: 2; display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 20px 12px 13px; overflow: hidden; color: #424945; background: #e9ece6; border-right: 1px solid #d9ddd6; }
-.brand { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; color: #1e2621; font-family: "Avenir Next", "Noto Sans SC", sans-serif; font-size: 17px; font-weight: 720; letter-spacing: -.045em; }
-.brand-mark { display: grid; place-items: center; width: 23px; height: 23px; color: #fffdf7; background: #485c4d; border-radius: 8px 8px 8px 3px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .22); }
-.brand-badge { margin-left: auto; padding: 3px 6px; color: #7d867d; font-size: 9px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; border: 1px solid #d4d9d1; border-radius: 999px; }
-.search-box { display: flex; align-items: center; gap: 8px; height: 35px; margin: 18px 5px 17px; padding: 0 9px; color: #858d84; background: #f7f8f5; border: 1px solid #d8dcd5; border-radius: 9px; transition: background .16s, border-color .16s; }
-.search-box:focus-within { background: #fff; border-color: #92a294; box-shadow: 0 0 0 3px rgb(91 117 95 / .1); }
-.search-box input { width: 100%; color: #303734; font-size: 12px; background: transparent; border: 0; outline: 0; }
-.search-box input::placeholder { color: #969d96; }
-.sidebar-label { display: flex; align-items: center; justify-content: space-between; margin: 0 9px 7px; color: #818980; font-size: 10px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
-.sidebar-label button, .tree-toggle, .open-folder { display: grid; place-items: center; color: #788177; background: transparent; border: 0; border-radius: 5px; }
-.sidebar-label button { width: 25px; height: 23px; }
-.sidebar-label button:hover, .tree-toggle:hover, .open-folder:hover { color: #314333; background: #dce2da; }
+button, input, select, textarea, .workspace-list, .message-area, .composer-wrap { -webkit-app-region: no-drag; }
+
+.desktop-shell { display: grid; grid-template-columns: 312px minmax(0, 1fr); width: 100%; height: 100%; min-height: 0; overflow: hidden; background: #fbfaf7; }
+.sidebar { z-index: 2; display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 44px 10px 14px; overflow: hidden; color: #383735; background: #fafafa; border-right: 1px solid #e6e5e1; -webkit-app-region: drag; }
+.brand { display: flex; align-items: center; gap: 8px; height: 31px; padding: 0 8px 13px; color: #2f2e2b; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; font-size: 14px; font-weight: 650; letter-spacing: -.025em; }
+.brand-mark { display: grid; place-items: center; width: 18px; height: 18px; color: #fff; background: #f46613; border-radius: 6px 6px 6px 2px; }
+.brand-badge { display: none; }
+.sidebar-new-chat, .search-box, .sidebar-utility { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+.sidebar-new-chat { display: flex; align-items: center; gap: 10px; width: 100%; height: 35px; padding: 0 9px; color: #45433f; font-size: 13px; font-weight: 430; text-align: left; background: transparent; border: 0; border-radius: 7px; }
+.sidebar-new-chat:hover { background: #f0f0ef; }
+.search-box { display: flex; align-items: center; gap: 10px; height: 35px; margin: 0; padding: 0 9px; color: #77746e; background: transparent; border: 0; border-radius: 7px; transition: background .16s; }
+.search-box:focus-within { background: #fff; box-shadow: inset 0 0 0 1px #e3e1dc; }
+.search-box input { width: 100%; color: #33322f; font-size: 13px; background: transparent; border: 0; outline: 0; }
+.search-box input::placeholder { color: #77746e; }
+.sidebar-utility { display: flex; align-items: center; gap: 10px; height: 35px; padding: 0 9px; color: #45433f; font-size: 13px; font-weight: 430; }
+.sidebar-utility svg { color: #77746e; }.sidebar-utility .utility-arrow { margin-left: auto; color: #9b9891; }
+.projects-label { display: flex; align-items: center; gap: 7px; margin: 24px 8px 10px; color: #8d8981; font-size: 10px; font-weight: 600; letter-spacing: .06em; }
+.projects-label strong { display: grid; place-items: center; min-width: 22px; height: 17px; padding: 0 5px; color: #8b867d; font-size: 9px; font-weight: 600; background: #efeeeb; border-radius: 999px; }
+.projects-actions { display: flex; gap: 5px; margin-left: auto; }.projects-actions button { display: grid; place-items: center; width: 23px; height: 23px; color: #817d75; background: transparent; border: 0; border-radius: 5px; }.projects-actions button:hover { color: #3b3935; background: #efeeeb; }
 .workspace-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 1px; }
-.workspace { margin-bottom: 3px; }
-.workspace-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 25px; align-items: center; height: 35px; border-radius: 7px; }
-.workspace-row.selected { background: #dbe4d8; }
-.workspace-row:hover { background: #e0e6de; }
-.tree-toggle { width: 22px; height: 28px; }
-.workspace-name { display: flex; align-items: center; min-width: 0; gap: 8px; padding: 0; overflow: hidden; color: #363f39; font-size: 13px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; }
-.workspace-name svg { flex: 0 0 auto; color: #788a75; }
-.open-folder { width: 23px; height: 25px; opacity: 0; }
-.workspace-row:hover .open-folder, .workspace-row.selected .open-folder { opacity: 1; }
-.conversation-list { margin: 1px 0 7px 17px; padding-left: 10px; border-left: 1px solid #d4dad2; }
-.conversation { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 7px; width: 100%; margin: 1px 0; padding: 7px 7px; color: #69736b; text-align: left; background: transparent; border: 0; border-radius: 7px; }
-.conversation:hover { color: #39463d; background: #e1e6df; }
-.conversation.active { color: #27372b; background: #f8f9f6; box-shadow: 0 1px 1px rgb(34 45 36 / .05); }
-.conversation > svg { margin-top: 1px; color: #7b8980; }
-.conversation-title, .conversation-preview { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-title { font-size: 12px; font-weight: 610; }
-.conversation-preview { margin-top: 3px; color: #969d96; font-size: 10px; }
-.missing { padding: 5px 7px; color: #a36c37; font-size: 11px; }
-.sidebar-bottom { display: grid; gap: 4px; padding: 12px 5px 0; border-top: 1px solid #d6dbd4; }
-.new-project, .settings-button { display: flex; align-items: center; gap: 8px; width: 100%; height: 35px; padding: 0 9px; color: #526056; font-size: 12px; text-align: left; background: transparent; border: 0; border-radius: 8px; }
-.new-project { color: #294231; font-weight: 690; background: #d6e3d2; }
-.new-project:hover { background: #c8dac4; }
-.settings-button:hover { background: #dce2da; }
+.workspace { margin-bottom: 14px; }.workspace-row { display: grid; grid-template-columns: minmax(0, 1fr) 42px; align-items: center; min-height: 34px; border-radius: 7px; }.workspace-row.selected, .workspace-row:hover { background: transparent; }
+.workspace-name { display: flex; align-items: center; min-width: 0; gap: 8px; padding: 0 7px; overflow: hidden; color: #373632; font-size: 13px; font-weight: 590; letter-spacing: -.01em; text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; }.workspace-name svg { flex: 0 0 auto; color: #79a6a4; }
+.workspace-actions { display: flex; align-items: center; justify-content: flex-end; gap: 1px; padding-right: 3px; opacity: .38; transition: opacity .14s; }.workspace-row:hover .workspace-actions, .workspace-row.selected .workspace-actions { opacity: 1; }.workspace-actions button { display: grid; place-items: center; width: 20px; height: 22px; color: #847f76; background: transparent; border: 0; border-radius: 5px; }.workspace-actions button:hover { color: #3c3a35; background: #efeeeb; }
+.conversation-list { margin: 2px 0 0; }.conversation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 34px; margin: 1px 0; padding: 6px 10px 6px 26px; color: #4e4b46; text-align: left; background: transparent; border: 0; border-radius: 6px; }.conversation:hover { background: #f0f0ee; }.conversation.active { color: #30302d; background: #e2e3e9; }.conversation-title { overflow: hidden; font-size: 13px; font-weight: 430; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }.conversation.active .conversation-title { font-weight: 550; }.conversation-preview { color: #98948b; font-size: 10px; white-space: nowrap; }.conversation.active .conversation-preview { color: #858b94; }.missing { padding: 7px 26px; color: #a36c37; font-size: 11px; }.more-conversations { padding: 9px 10px 0 26px; color: #827e75; font-size: 10px; }
+.sidebar-bottom { display: none; }
 
 .main { display: grid; grid-template-rows: 80px minmax(0, 1fr) auto; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: #f8f9f6; }
-.header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 33px 13px; background: rgb(250 251 248 / .86); border-bottom: 1px solid #e5e8e2; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 33px 13px; background: rgb(250 251 248 / .86); border-bottom: 1px solid #e5e8e2; -webkit-app-region: drag; }
 .title-area { min-width: 0; }
 .conversation-kicker { display: block; margin-bottom: 3px; overflow: hidden; color: #8a928a; font-size: 10px; font-weight: 720; letter-spacing: .08em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .title-area h1 { margin: 0; overflow: hidden; color: #29322c; font-family: "Avenir Next", "Noto Sans SC", sans-serif; font-size: 16px; font-weight: 720; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }

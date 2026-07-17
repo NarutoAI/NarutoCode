@@ -32,7 +32,12 @@ public class Conversation
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
 
     /// <summary>
-    /// 工作目录
+    /// 所属项目主键。
+    /// </summary>
+    public long ProjectId { get; set; }
+
+    /// <summary>
+    /// 工作目录，保留用于运行时工作区定位。
     /// </summary>
     public string WorkDirectory { get; set; } = string.Empty;
 

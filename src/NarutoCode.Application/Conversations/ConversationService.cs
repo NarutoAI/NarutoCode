@@ -38,12 +38,40 @@ public class ConversationService(
         return await conversationRepository.ListByWorkDirectoryAsync(workDirectory, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public Task<WorkspaceSummary> GetOrCreateWorkspaceAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedWorkDirectory = WorkspacePath.Normalize(workDirectory);
+        return conversationRepository.GetOrCreateWorkspaceAsync(normalizedWorkDirectory, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConversationSummary>> ListProjectConversationsAsync(
+        long projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await conversationRepository.ListByProjectIdAsync(projectId, cancellationToken);
+    }
 
     public async Task<ConversationHistory> CreateWorkspaceConversationAsync(
         string workDirectory,
         CancellationToken cancellationToken = default)
     {
         var conversation = await conversationRepository.CreateForWorkDirectoryAsync(workDirectory, cancellationToken);
+        return new ConversationHistory(
+            new ConversationSessionId(conversation.Id),
+            [],
+            conversation.TokenCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<ConversationHistory> CreateProjectConversationAsync(
+        long projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var conversation = await conversationRepository.CreateForProjectIdAsync(projectId, cancellationToken);
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
             [],
@@ -99,15 +127,13 @@ public class ConversationService(
         string workDirectory,
         CancellationToken cancellationToken = default)
     {
-        // 规范化为绝对路径，确保跨宿主一致
-        var normalizedPath = WorkspacePath.Normalize(workDirectory);
-        // 查询该工作区下已有会话，取最近一条
-        var existing = (await conversationRepository.ListByWorkDirectoryAsync(normalizedPath, cancellationToken))
-            .FirstOrDefault();
+        // 工作目录只用于定位项目；会话查询和创建统一通过项目主键完成。
+        var workspace = await GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
+        var existing = (await ListProjectConversationsAsync(workspace.Id, cancellationToken)).FirstOrDefault();
 
-        // 存在会话则加载历史，不存在则创建首个会话
+        // 存在会话则加载历史，不存在则在该项目下创建首个会话。
         var history = existing is null
-            ? await CreateWorkspaceConversationAsync(normalizedPath, cancellationToken)
+            ? await CreateProjectConversationAsync(workspace.Id, cancellationToken)
             : await LoadConversationHistoryAsync(new ConversationSessionId(existing.Id), cancellationToken);
 
         return new OpenWorkspaceResult(history, existing is null);

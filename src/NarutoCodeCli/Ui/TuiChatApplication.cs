@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Configurations;
+﻿using NarutoCode.Domain.Configurations;
 using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Enums;
@@ -34,6 +34,7 @@ internal sealed class TuiChatApplication(
 
     private readonly ChatSessionState sessionState = new();
     private ConversationSessionId sessionId = ConversationSessionId.New();
+    private long projectId;
 
     /// <summary>
     /// 运行 TUI 主循环，直到用户退出或收到取消请求。
@@ -260,8 +261,10 @@ internal sealed class TuiChatApplication(
     private async Task<SessionLauncherResult> SelectConversationAsync(CancellationToken cancellationToken)
     {
         var workDirectory = workspaceContextAccessor.Current.WorkingDirectory;
-        var conversations = await conversationService.ListWorkspaceConversationsAsync(workDirectory, cancellationToken);
-        var state = new SessionLauncherState(workDirectory, conversations);
+        var workspace = await conversationService.GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
+        projectId = workspace.Id;
+        var conversations = await conversationService.ListProjectConversationsAsync(projectId, cancellationToken);
+        var state = new SessionLauncherState(workspace.WorkDirectory, conversations);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -353,8 +356,8 @@ internal sealed class TuiChatApplication(
     {
         var history = launcherResult switch
         {
-            { CreateNew: true } => await conversationService.CreateWorkspaceConversationAsync(
-                workspaceContextAccessor.Current.WorkingDirectory,
+            { CreateNew: true } => await conversationService.CreateProjectConversationAsync(
+                projectId,
                 cancellationToken),
             { ConversationId: { } conversationId } => await conversationService.LoadConversationHistoryAsync(
                 conversationId,

@@ -1,10 +1,9 @@
-﻿import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown'
-import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight'
-import { ChatsCircleIcon as ChatsCircle } from '@phosphor-icons/react/dist/csr/ChatsCircle'
+﻿import { CalendarDotsIcon as CalendarDots } from '@phosphor-icons/react/dist/csr/CalendarDots'
+import { DotsThreeIcon as DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree'
 import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen'
-import { FolderSimplePlusIcon as FolderSimplePlus } from '@phosphor-icons/react/dist/csr/FolderSimplePlus'
-import { GearSixIcon as GearSix } from '@phosphor-icons/react/dist/csr/GearSix'
 import { MagnifyingGlassIcon as MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass'
+import { PenIcon as Pen } from '@phosphor-icons/react/dist/csr/Pen'
+import { PlugIcon as Plug } from '@phosphor-icons/react/dist/csr/Plug'
 import { PlusIcon as Plus } from '@phosphor-icons/react/dist/csr/Plus'
 import { SparkleIcon as Sparkle } from '@phosphor-icons/react/dist/csr/Sparkle'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -234,20 +233,22 @@ export function App() {
 
   return <div className="desktop-shell">
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark"><Sparkle size={14} weight="fill" /></span><span>NarutoCode</span><span className="brand-badge">桌面端</span></div>
-      <label className="search-box"><MagnifyingGlass size={16} /><input aria-label="搜索项目" placeholder="搜索项目和会话" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      <div className="sidebar-label"><span>项目</span><button type="button" aria-label="添加项目" title="添加项目" onClick={() => void addWorkspace()}><Plus size={16} /></button></div>
+      <div className="brand"><span className="brand-mark"><Sparkle size={12} weight="fill" /></span><span>NarutoCode</span></div>
+      <button className="sidebar-new-chat" type="button" onClick={() => void createConversation()} disabled={!selectedWorkspace}><Pen size={15} />新建对话</button>
+      <label className="search-box"><MagnifyingGlass size={15} /><input aria-label="搜索项目" placeholder="搜索" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <div className="sidebar-utility"><Plug size={15} />插件</div>
+      <div className="sidebar-utility"><FolderOpen size={15} />扩展功能<span className="utility-arrow">›</span></div>
+      <div className="sidebar-utility"><CalendarDots size={15} />自动化</div>
+      <div className="projects-label"><span>⌄</span><span>项目</span><strong>{workspaces.length}</strong><span className="projects-actions"><button type="button" aria-label="添加项目" title="添加项目" onClick={() => void addWorkspace()}><Plus size={14} /></button><button type="button" aria-label="打开日志目录" title="打开日志目录" onClick={() => void window.narutoCode.openLogsDirectory()}><DotsThree size={15} weight="bold" /></button></span></div>
       <nav className="workspace-list" aria-label="工作区列表">
         {filtered.map(workspace => <section className="workspace" key={workspace.id}>
           <div className={`workspace-row ${selectedWorkspace?.id === workspace.id ? 'selected' : ''}`} title={workspace.workDirectory}>
-            <button className="tree-toggle" type="button" aria-label={`展开 ${workspace.name}`} onClick={() => void selectWorkspace(workspace)}>{selectedWorkspace?.id === workspace.id ? <CaretDown size={14} /> : <CaretRight size={14} />}</button>
-            <button className="workspace-name" type="button" onClick={() => void selectWorkspace(workspace)}><FolderOpen size={16} weight="fill" />{workspace.name}</button>
-            <button className="open-folder" type="button" aria-label={`打开 ${workspace.name}`} title="在 Finder 或 Explorer 中打开" onClick={() => void window.narutoCode.openWorkspaceFolder(workspace.workDirectory)}><FolderOpen size={15} /></button>
+            <button className="workspace-name" type="button" aria-label={`展开 ${workspace.name}`} onClick={() => void selectWorkspace(workspace)}><FolderOpen size={14} weight="fill" />{workspace.name}</button>
+            <div className="workspace-actions"><button type="button" aria-label={`在 ${workspace.name} 中新建会话`} title="新建会话" onClick={() => { if (selectedWorkspace?.id !== workspace.id) void selectWorkspace(workspace); else void createConversation() }}><Plus size={14} /></button><button type="button" aria-label={`打开 ${workspace.name}`} title="在 Finder 中打开" onClick={() => void window.narutoCode.openWorkspaceFolder(workspace.workDirectory)}><DotsThree size={14} weight="bold" /></button></div>
           </div>
-          {selectedWorkspace?.id === workspace.id && <div className="conversation-list">{!workspace.directoryExists && <div className="missing">目录当前不可用</div>}{conversations.map(conversation => <button key={conversation.id} type="button" className={`conversation ${selectedConversation?.id === conversation.id ? 'active' : ''}`} onClick={() => void selectConversation(conversation)}><ChatsCircle size={15} /><span><span className="conversation-title">{conversation.title}</span><span className="conversation-preview">{conversation.lastUserMessagePreview || '暂无消息'}</span></span></button>)}</div>}
+          {selectedWorkspace?.id === workspace.id && <div className="conversation-list">{!workspace.directoryExists && <div className="missing">目录当前不可用</div>}{conversations.map(conversation => <button key={conversation.id} type="button" className={`conversation ${selectedConversation?.id === conversation.id ? 'active' : ''}`} onClick={() => void selectConversation(conversation)}><span className="conversation-title">{conversation.title}</span><span className="conversation-preview">{conversation.updatedAt ? new Date(conversation.updatedAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : ''}</span></button>)}{conversations.length > 5 && <div className="more-conversations">› 展开更多（{conversations.length - 5}）</div>}</div>}
         </section>)}
       </nav>
-      <div className="sidebar-bottom"><button className="new-project" type="button" onClick={() => void addWorkspace()}><FolderSimplePlus size={18} weight="bold" />添加项目</button><button className="settings-button" type="button" aria-label="打开日志目录" onClick={() => void window.narutoCode.openLogsDirectory()}><GearSix size={18} />运行日志</button></div>
     </aside>
     <main className="main">
       <header className="header"><div className="title-area"><span className="conversation-kicker">{selectedWorkspace?.name ?? 'NarutoCode 工作台'}</span><h1>{selectedConversation?.title ?? '开始新的工作'}</h1>{selectedWorkspace && <span className="header-path">{selectedWorkspace.workDirectory}</span>}</div>

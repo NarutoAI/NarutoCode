@@ -3,7 +3,7 @@ import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/dist/csr/C
 import { CircleNotchIcon as CircleNotch } from '@phosphor-icons/react/dist/csr/CircleNotch'
 import { TerminalWindowIcon as TerminalWindow } from '@phosphor-icons/react/dist/csr/TerminalWindow'
 import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/dist/csr/WarningCircle'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export type LiveBlock = {
   id: string
@@ -20,6 +20,14 @@ function labelForTool(content: string) {
 /** 显示运行过程中的思考、工具和异常活动。 */
 export function ActivityBlock({ block }: { block: LiveBlock }) {
   const [expanded, setExpanded] = useState(block.kind === 'error')
+
+  useEffect(() => {
+    // 流式内容持续到达时必须保持展开；活动结束后自动收起，避免占用后续回复空间。
+    const isRunningActivity = (block.kind === 'thinking' || block.kind === 'tool')
+      && block.status !== 'completed'
+      && block.status !== 'failed'
+    setExpanded(block.kind === 'error' || isRunningActivity)
+  }, [block.content, block.kind, block.status])
 
   if (block.kind === 'thinking') {
     const completed = block.status === 'completed'

@@ -1,7 +1,7 @@
 ﻿using System.Globalization;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Desktop.Api.Contracts;
-using NarutoCode.Desktop.Api.Workspaces;
+using NarutoCode.Domain.Workspaces;
 
 namespace NarutoCode.Desktop.Api.Endpoints;
 
@@ -22,8 +22,8 @@ internal static class WorkspaceEndpoints
         {
             var summaries = await service.ListWorkspacesAsync(ct);
             var dtos = summaries.Select(s => new WorkspaceSummaryDto(
-                WorkspaceId.Create(s.WorkDirectory),
-                Path.GetFileName(s.WorkDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                s.Id.ToString(CultureInfo.InvariantCulture),
+                s.Name,
                 s.WorkDirectory,
                 s.LastUpdatedAt,
                 s.ConversationCount,
@@ -40,7 +40,10 @@ internal static class WorkspaceEndpoints
             }
 
             var result = await service.OpenWorkspaceAsync(request.WorkDirectory, ct);
-            var workspaceId = WorkspaceId.Create(request.WorkDirectory);
+            var normalizedWorkDirectory = WorkspacePath.Normalize(request.WorkDirectory);
+            var project = (await service.ListWorkspacesAsync(ct))
+                .Single(s => s.WorkDirectory == normalizedWorkDirectory);
+            var workspaceId = project.Id.ToString(CultureInfo.InvariantCulture);
             var conversationDto = new ConversationSummaryDto(
                 result.History.SessionId.Value.ToString(CultureInfo.InvariantCulture),
                 "conversation",
@@ -60,15 +63,18 @@ internal static class WorkspaceEndpoints
             IConversationService service,
             CancellationToken ct) =>
         {
-            // 通过遍历工作区摘要匹配 workspaceId
-            var summaries = await service.ListWorkspacesAsync(ct);
-            var match = summaries.FirstOrDefault(s => WorkspaceId.Create(s.WorkDirectory) == workspaceId);
-            if (match is null)
+            if (!long.TryParse(workspaceId, CultureInfo.InvariantCulture, out var projectId))
             {
                 return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
             }
 
-            var conversations = await service.ListWorkspaceConversationsAsync(match.WorkDirectory, ct);
+            var summaries = await service.ListWorkspacesAsync(ct);
+            if (!summaries.Any(s => s.Id == projectId))
+            {
+                return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
+            }
+
+            var conversations = await service.ListProjectConversationsAsync(projectId, ct);
             var dtos = conversations.Select(c => new ConversationSummaryDto(
                 c.Id.ToString(CultureInfo.InvariantCulture),
                 c.Title,
@@ -87,14 +93,19 @@ internal static class WorkspaceEndpoints
             IConversationService service,
             CancellationToken ct) =>
         {
+            if (!long.TryParse(workspaceId, CultureInfo.InvariantCulture, out var projectId))
+            {
+                return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
+            }
+
             var summaries = await service.ListWorkspacesAsync(ct);
-            var match = summaries.FirstOrDefault(s => WorkspaceId.Create(s.WorkDirectory) == workspaceId);
+            var match = summaries.FirstOrDefault(s => s.Id == projectId);
             if (match is null)
             {
                 return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
             }
 
-            var history = await service.CreateWorkspaceConversationAsync(match.WorkDirectory, ct);
+            var history = await service.CreateProjectConversationAsync(projectId, ct);
             return Results.Ok(new ConversationSummaryDto(
                 history.SessionId.Value.ToString(CultureInfo.InvariantCulture),
                 Path.GetFileName(match.WorkDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),

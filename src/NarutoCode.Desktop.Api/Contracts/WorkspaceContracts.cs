@@ -3,7 +3,7 @@
 /// <summary>
 /// 工作区摘要 DTO。
 /// </summary>
-/// <param name="Id">工作区哈希标识。</param>
+/// <param name="Id">项目主键标识。</param>
 /// <param name="Name">工作区名称。</param>
 /// <param name="WorkDirectory">工作区绝对路径。</param>
 /// <param name="LastUpdatedAt">最近更新时间。</param>
@@ -26,7 +26,7 @@ public sealed record OpenWorkspaceRequest(string WorkDirectory);
 /// <summary>
 /// 打开工作区响应。
 /// </summary>
-/// <param name="WorkspaceId">工作区哈希标识。</param>
+/// <param name="WorkspaceId">项目主键标识。</param>
 /// <param name="Conversation">打开后的会话信息。</param>
 /// <param name="Created">是否新建了首个会话。</param>
 public sealed record OpenWorkspaceResponse(

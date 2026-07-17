@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
 using NarutoCode.Domain.Messages;
+using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 
 namespace NarutoCode.Infrastructure.Stores;
@@ -23,14 +24,16 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             throw new ArgumentException("工作目录不能为空。", nameof(workDirectory));
         }
 
+        workDirectory = WorkspacePath.Normalize(workDirectory);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        var existingConversation = await FindLatestConversationAsync(connection, workDirectory, cancellationToken);
+        var projectId = await EnsureProjectAsync(connection, workDirectory, DateTime.Now, cancellationToken);
+        var existingConversation = await FindLatestConversationAsync(connection, projectId, cancellationToken);
         if (existingConversation is not null)
         {
             return existingConversation;
         }
 
-        return await CreateForWorkDirectoryAsync(workDirectory, cancellationToken);
+        return await CreateForProjectIdAsync(projectId, cancellationToken);
     }
 
     
@@ -41,6 +44,117 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         if (string.IsNullOrWhiteSpace(workDirectory))
         {
             throw new ArgumentException("工作目录不能为空。", nameof(workDirectory));
+        }
+
+        workDirectory = WorkspacePath.Normalize(workDirectory);
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT
+                c."Id",
+                c."Title",
+                c."CreatedAt",
+                c."UpdatedAt",
+                c."TokenCount",
+                c."LastUsageTokenCount",
+                COUNT(m."Id") AS "MessageCount",
+                COALESCE((
+                    SELECT um."Content"
+                    FROM "Messages" um
+                    WHERE um."ConversationId" = c."Id"
+                      AND um."Role" = 'user'
+                      AND um."Visibility" = $visibility
+                    ORDER BY um."CreatedAt" DESC, um."Id" DESC
+                    LIMIT 1
+                ), '') AS "LastUserMessagePreview"
+            FROM "Conversations" c
+            INNER JOIN "Projects" p ON p."Id" = c."ProjectId"
+            LEFT JOIN "Messages" m
+                ON m."ConversationId" = c."Id"
+               AND m."Visibility" = $visibility
+            WHERE p."WorkDirectory" = $workDirectory
+            GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt", c."TokenCount", c."LastUsageTokenCount"
+            ORDER BY c."UpdatedAt" DESC;
+            """;
+        AddParameter(command, "$workDirectory", workDirectory);
+        AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
+
+        var summaries = new List<ConversationSummary>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            summaries.Add(new ConversationSummary(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                ReadDateTime(reader, 2),
+                ReadDateTime(reader, 3),
+                Convert.ToInt32(reader.GetValue(6), CultureInfo.InvariantCulture),
+                Convert.ToInt64(reader.GetValue(4), CultureInfo.InvariantCulture),
+                Convert.ToInt64(reader.GetValue(5), CultureInfo.InvariantCulture),
+                CreateMessagePreview(reader.GetString(7))));
+        }
+
+        return summaries;
+    }
+
+    /// <inheritdoc />
+    public async Task<WorkspaceSummary> GetOrCreateWorkspaceAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(workDirectory))
+        {
+            throw new ArgumentException("工作目录不能为空。", nameof(workDirectory));
+        }
+
+        workDirectory = WorkspacePath.Normalize(workDirectory);
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var projectId = await EnsureProjectAsync(connection, workDirectory, DateTime.Now, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT
+                p."Id",
+                p."Name",
+                p."WorkDirectory",
+                p."SortOrder",
+                p."CreatedAt",
+                p."UpdatedAt",
+                COALESCE(MAX(c."UpdatedAt"), p."UpdatedAt") AS "LastUpdatedAt",
+                COUNT(c."Id") AS "ConversationCount"
+            FROM "Projects" p
+            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id"
+            WHERE p."Id" = $projectId
+            GROUP BY p."Id", p."Name", p."WorkDirectory", p."SortOrder", p."CreatedAt", p."UpdatedAt";
+            """;
+        AddParameter(command, "$projectId", projectId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException($"项目创建后无法读取：{workDirectory}");
+        }
+
+        return new WorkspaceSummary(
+            reader.GetInt64(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetInt32(3),
+            ReadDateTime(reader, 4),
+            ReadDateTime(reader, 5),
+            ReadDateTime(reader, 6),
+            Convert.ToInt32(reader.GetValue(7), CultureInfo.InvariantCulture));
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConversationSummary>> ListByProjectIdAsync(
+        long projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(projectId), "项目标识必须大于零。");
         }
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
@@ -68,11 +182,11 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             LEFT JOIN "Messages" m
                 ON m."ConversationId" = c."Id"
                AND m."Visibility" = $visibility
-            WHERE c."WorkDirectory" = $workDirectory
+            WHERE c."ProjectId" = $projectId
             GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt", c."TokenCount", c."LastUsageTokenCount"
             ORDER BY c."UpdatedAt" DESC;
             """;
-        AddParameter(command, "$workDirectory", workDirectory);
+        AddParameter(command, "$projectId", projectId);
         AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
 
         var summaries = new List<ConversationSummary>();
@@ -101,11 +215,19 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "WorkDirectory", MAX("UpdatedAt"), COUNT("Id")
-            FROM "Conversations"
-            WHERE "WorkDirectory" <> ''
-            GROUP BY "WorkDirectory"
-            ORDER BY MAX("UpdatedAt") DESC;
+            SELECT
+                p."Id",
+                p."Name",
+                p."WorkDirectory",
+                p."SortOrder",
+                p."CreatedAt",
+                p."UpdatedAt",
+                COALESCE(MAX(c."UpdatedAt"), p."UpdatedAt") AS "LastUpdatedAt",
+                COUNT(c."Id") AS "ConversationCount"
+            FROM "Projects" p
+            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id"
+            GROUP BY p."Id", p."Name", p."WorkDirectory", p."SortOrder", p."CreatedAt", p."UpdatedAt"
+            ORDER BY p."SortOrder", "LastUpdatedAt" DESC, p."Id";
             """;
 
         var workspaces = new List<WorkspaceSummary>();
@@ -113,9 +235,14 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         while (await reader.ReadAsync(cancellationToken))
         {
             workspaces.Add(new WorkspaceSummary(
-                reader.GetString(0),
-                ReadDateTime(reader, 1),
-                Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture)));
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetInt32(3),
+                ReadDateTime(reader, 4),
+                ReadDateTime(reader, 5),
+                ReadDateTime(reader, 6),
+                Convert.ToInt32(reader.GetValue(7), CultureInfo.InvariantCulture)));
         }
 
         return workspaces;
@@ -130,10 +257,29 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             throw new ArgumentException("工作目录不能为空。", nameof(workDirectory));
         }
 
+        workDirectory = WorkspacePath.Normalize(workDirectory);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var projectId = await EnsureProjectAsync(connection, workDirectory, DateTime.Now, cancellationToken);
+        return await CreateForProjectIdAsync(projectId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<Conversation> CreateForProjectIdAsync(
+        long projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(projectId), "项目标识必须大于零。");
+        }
+
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        var workDirectory = await GetProjectWorkDirectoryAsync(connection, projectId, cancellationToken)
+            ?? throw new InvalidOperationException($"项目不存在：{projectId}");
         var now = DateTime.Now;
         var conversation = new Conversation
         {
+            ProjectId = projectId,
             Title = CreateConversationTitle(workDirectory),
             WorkDirectory = workDirectory,
             CreatedAt = now,
@@ -141,6 +287,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         };
 
         await InsertConversationAsync(connection, conversation, cancellationToken);
+        await TouchProjectAsync(connection, projectId, now, cancellationToken);
         return conversation;
     }
 
@@ -153,7 +300,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
             FROM "Conversations"
             WHERE "Id" = $conversationId
             LIMIT 1;
@@ -293,21 +440,84 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         return messages;
     }
 
-    private static async Task<Conversation?> FindLatestConversationAsync(
+    /// <summary>
+    /// 确保工作目录存在对应项目记录；已有项目保留用户维护的名称和排序。
+    /// </summary>
+    private static async Task<long> EnsureProjectAsync(
         DbConnection connection,
         string workDirectory,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText =
+                """
+                INSERT INTO "Projects" ("Name", "WorkDirectory", "SortOrder", "CreatedAt", "UpdatedAt")
+                VALUES ($name, $workDirectory, 0, $createdAt, $updatedAt)
+                ON CONFLICT("WorkDirectory") DO NOTHING;
+                """;
+            AddParameter(command, "$name", CreateProjectName(workDirectory));
+            AddParameter(command, "$workDirectory", workDirectory);
+            AddParameter(command, "$createdAt", FormatDateTime(now));
+            AddParameter(command, "$updatedAt", FormatDateTime(now));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var selectCommand = connection.CreateCommand();
+        selectCommand.CommandText = "SELECT \"Id\" FROM \"Projects\" WHERE \"WorkDirectory\" = $workDirectory LIMIT 1;";
+        AddParameter(selectCommand, "$workDirectory", workDirectory);
+        var projectId = await selectCommand.ExecuteScalarAsync(cancellationToken);
+        return Convert.ToInt64(projectId, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// 将项目更新时间同步到新建会话时间，同时不修改项目名称和用户设置的排序值。
+    /// </summary>
+    private static async Task TouchProjectAsync(
+        DbConnection connection,
+        long projectId,
+        DateTime updatedAt,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "UPDATE \"Projects\" SET \"UpdatedAt\" = $updatedAt WHERE \"Id\" = $projectId;";
+        AddParameter(command, "$updatedAt", FormatDateTime(updatedAt));
+        AddParameter(command, "$projectId", projectId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 获取项目绑定的工作目录。
+    /// </summary>
+    private static async Task<string?> GetProjectWorkDirectoryAsync(
+        DbConnection connection,
+        long projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT \"WorkDirectory\" FROM \"Projects\" WHERE \"Id\" = $projectId LIMIT 1;";
+        AddParameter(command, "$projectId", projectId);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is null or DBNull ? null : Convert.ToString(result, CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<Conversation?> FindLatestConversationAsync(
+        DbConnection connection,
+        long projectId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
             FROM "Conversations"
-            WHERE "WorkDirectory" = $workDirectory
+            WHERE "ProjectId" = $projectId
             ORDER BY "UpdatedAt" DESC
             LIMIT 1;
             """;
-        AddParameter(command, "$workDirectory", workDirectory);
+        AddParameter(command, "$projectId", projectId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -326,10 +536,11 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             Title = reader.GetString(1),
             CreatedAt = ReadDateTime(reader, 2),
             UpdatedAt = ReadDateTime(reader, 3),
-            WorkDirectory = reader.GetString(4),
-            TokenCount = reader.GetInt64(5),
-            LastUsageTokenCount = reader.GetInt64(6),
-            LastInputTokenCount = reader.GetInt64(7)
+            ProjectId = reader.GetInt64(4),
+            WorkDirectory = reader.GetString(5),
+            TokenCount = reader.GetInt64(6),
+            LastUsageTokenCount = reader.GetInt64(7),
+            LastInputTokenCount = reader.GetInt64(8)
         };
     }
 
@@ -341,13 +552,14 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount")
-            VALUES ($id, $title, $createdAt, $updatedAt, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount);
+            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount")
+            VALUES ($id, $title, $createdAt, $updatedAt, $projectId, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount);
             """;
         AddParameter(command, "$id", conversation.Id);
         AddParameter(command, "$title", conversation.Title);
         AddParameter(command, "$createdAt", FormatDateTime(conversation.CreatedAt));
         AddParameter(command, "$updatedAt", FormatDateTime(conversation.UpdatedAt));
+        AddParameter(command, "$projectId", conversation.ProjectId);
         AddParameter(command, "$workDirectory", conversation.WorkDirectory);
         AddParameter(command, "$tokenCount", conversation.TokenCount);
         AddParameter(command, "$lastUsageTokenCount", conversation.LastUsageTokenCount);
@@ -459,10 +671,15 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             : string.Concat(preview.AsSpan(0, maxPreviewLength), "…");
     }
 
-    private static string CreateConversationTitle(string workDirectory)
+    private static string CreateConversationTitle(string workDirectory) => CreateProjectName(workDirectory);
+
+    /// <summary>
+    /// 从工作目录生成项目默认名称。
+    /// </summary>
+    private static string CreateProjectName(string workDirectory)
     {
-        var title = Path.GetFileName(workDirectory.TrimEnd(Path.DirectorySeparatorChar,
+        var name = Path.GetFileName(workDirectory.TrimEnd(Path.DirectorySeparatorChar,
             Path.AltDirectorySeparatorChar));
-        return string.IsNullOrWhiteSpace(title) ? workDirectory : title;
+        return string.IsNullOrWhiteSpace(name) ? workDirectory : name;
     }
 }

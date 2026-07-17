@@ -28,6 +28,26 @@ public interface IConversationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 按工作目录获取或创建项目，但不创建会话。
+    /// </summary>
+    /// <param name="workDirectory">项目工作目录。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>项目摘要。</returns>
+    Task<WorkspaceSummary> GetOrCreateWorkspaceAsync(
+        string workDirectory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 列出指定项目下可供用户选择的会话摘要。
+    /// </summary>
+    /// <param name="projectId">项目主键。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>按最近更新时间倒序排列的会话摘要。</returns>
+    Task<IReadOnlyList<ConversationSummary>> ListProjectConversationsAsync(
+        long projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 为当前工作目录创建新的空会话并返回历史对象。
     /// </summary>
     /// <param name="workDirectory">当前工作目录。</param>
@@ -35,6 +55,16 @@ public interface IConversationService
     /// <returns>新会话历史。</returns>
     Task<ConversationHistory> CreateWorkspaceConversationAsync(
         string workDirectory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 为指定项目创建新的空会话并返回历史对象。
+    /// </summary>
+    /// <param name="projectId">项目主键。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>新会话历史。</returns>
+    Task<ConversationHistory> CreateProjectConversationAsync(
+        long projectId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
