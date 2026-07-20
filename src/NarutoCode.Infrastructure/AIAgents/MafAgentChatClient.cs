@@ -15,10 +15,7 @@ namespace NarutoCode.Infrastructure.AIAgents;
 /// </summary>
 public class MafAgentChatClient : IAgentChatClient
 {
-    private readonly AIAgent _agent;
-
-    private readonly ConcurrentDictionary<long, Lazy<Task<AgentSession>>> _agentSessions = new();
-
+    private readonly IAgentFactory _agentFactory;
 
     private readonly IConversationRepository _conversationRepository;
 
@@ -33,20 +30,9 @@ public class MafAgentChatClient : IAgentChatClient
     {
         ArgumentNullException.ThrowIfNull(agentFactory);
 
+        _agentFactory = agentFactory;
         _conversationRepository = conversationRepository;
         _logger = logger;
-        _agent = agentFactory.Create();
-    }
-
-    private Task<AgentSession> GetAgentSessionAsync(ConversationSessionId sessionId)
-    {
-        var lazySession = _agentSessions.GetOrAdd(
-            sessionId.Value,
-            id => new Lazy<Task<AgentSession>>(
-                () => CreateSessionAsync(new ConversationSessionId(id)),
-                LazyThreadSafetyMode.ExecutionAndPublication));
-
-        return lazySession.Value;
     }
 
     /// <summary>
@@ -60,18 +46,21 @@ public class MafAgentChatClient : IAgentChatClient
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _agentSessions.TryRemove(sessionId.Value, out _);
+        _agentFactory.ResetCurrentConversation(sessionId);
         return Task.CompletedTask;
     }
 
-    private async Task<AgentSession> CreateSessionAsync(ConversationSessionId sessionId)
+    private async Task<AgentSession> CreateSessionAsync(
+        AIAgent agent,
+        ConversationSessionId sessionId,
+        CancellationToken cancellationToken)
     {
-        var messages = await LoadSessionHistoryMessagesAsync(_conversationRepository, sessionId);
+        var messages = await LoadSessionHistoryMessagesAsync(_conversationRepository, sessionId, cancellationToken);
 
         // 读取会话实体，获取数据库记录的最近一次输入 token 用量
-        var conversation = await _conversationRepository.GetByIdAsync(sessionId.Value);
+        var conversation = await _conversationRepository.GetByIdAsync(sessionId.Value, cancellationToken);
 
-        var session = await _agent.CreateSessionAsync();
+        var session = await agent.CreateSessionAsync(cancellationToken);
         var chatMessages = new List<ChatMessage>(messages.Count);
 
         foreach (var item in messages.OrderBy(a => a.Id))
@@ -197,22 +186,23 @@ public class MafAgentChatClient : IAgentChatClient
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ChatMessage? chatMessage = null;
-        AgentSession? agentSession = null;
+        IConversationAgentLease? lease = null;
         Exception? initializationException = null;
 
         try
         {
             chatMessage = await CreateChatMessageAsync(message);
-            agentSession = await GetAgentSessionAsync(sessionId).WaitAsync(cancellationToken);
+            lease = await _agentFactory.AcquireCurrentConversationAsync(sessionId, cancellationToken);
+            lease.Session ??= await CreateSessionAsync(lease.Agent, sessionId, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _agentSessions.TryRemove(sessionId.Value, out _);
+            lease?.Invalidate();
             throw;
         }
         catch (Exception exception)
         {
-            _agentSessions.TryRemove(sessionId.Value, out _);
+            lease?.Invalidate();
             initializationException = exception;
         }
 
@@ -225,9 +215,10 @@ public class MafAgentChatClient : IAgentChatClient
             yield break;
         }
 
+        await using var currentLease = lease!;
         var currentChatMessage = chatMessage!;
-        var currentAgentSession = agentSession!;
-        await using var enumerator = _agent.RunStreamingAsync(
+        var currentAgentSession = currentLease.Session!;
+        await using var enumerator = currentLease.Agent.RunStreamingAsync(
                 currentChatMessage,
                 currentAgentSession,
                 cancellationToken: cancellationToken)
@@ -249,7 +240,7 @@ public class MafAgentChatClient : IAgentChatClient
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                _agentSessions.TryRemove(sessionId.Value, out _);
+                currentLease.Invalidate();
                 throw;
             }
             catch (Exception exception)
@@ -259,6 +250,7 @@ public class MafAgentChatClient : IAgentChatClient
 
             if (streamingException is not null)
             {
+                currentLease.Invalidate();
                 _logger.LogError(exception:streamingException,"Agent 执行失败");
                 yield return new AgentMessage(
                     AgentMessageType.Error,
@@ -310,7 +302,7 @@ public class MafAgentChatClient : IAgentChatClient
             var usageContent = item.Contents?.OfType<UsageContent>().FirstOrDefault();
             if (usageContent != null)
             {
-                agentSession!.SetSessionUsage(usageContent);
+                currentAgentSession.SetSessionUsage(usageContent);
                 yield return new(AgentMessageType.Usage,
                     usageContent.Details.TotalTokenCount.GetValueOrDefault().ToString());
             }
