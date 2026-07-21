@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <AssemblyName>narutocode-gateway</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
+    </ItemGroup>
+
+</Project>
