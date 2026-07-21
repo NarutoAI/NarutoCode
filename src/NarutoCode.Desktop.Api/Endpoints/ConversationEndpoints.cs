@@ -2,6 +2,7 @@
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Desktop.Api.Contracts;
+using NarutoCode.Desktop.Api.Errors;
 
 namespace NarutoCode.Desktop.Api.Endpoints;
 
@@ -23,7 +24,7 @@ internal static class ConversationEndpoints
         {
             if (!long.TryParse(conversationId, CultureInfo.InvariantCulture, out var id))
             {
-                return Results.BadRequest(new { code = "invalid_conversation_id", message = "会话 ID 格式无效。" });
+                return Results.BadRequest(new ApiErrorResponse("invalid_conversation_id", "会话 ID 格式无效。", string.Empty, null));
             }
 
             var history = await service.LoadConversationHistoryAsync(new ConversationSessionId(id), ct);

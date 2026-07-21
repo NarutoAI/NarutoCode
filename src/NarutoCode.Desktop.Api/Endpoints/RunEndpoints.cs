@@ -2,6 +2,7 @@
 using System.Text.Json;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Desktop.Api.Contracts;
+using NarutoCode.Desktop.Api.Errors;
 using NarutoCode.Desktop.Api.Runs;
 using NarutoCode.Desktop.Api.Serialization;
 
@@ -32,12 +33,12 @@ internal static class RunEndpoints
         {
             if (!long.TryParse(conversationId, CultureInfo.InvariantCulture, out var id))
             {
-                return Results.BadRequest(new { code = "invalid_conversation_id", message = "会话 ID 格式无效。" });
+                return Results.BadRequest(new ApiErrorResponse("invalid_conversation_id", "会话 ID 格式无效。", string.Empty, null));
             }
 
             if (string.IsNullOrWhiteSpace(request.Content))
             {
-                return Results.BadRequest(new { code = "invalid_content", message = "消息内容不能为空。" });
+                return Results.BadRequest(new ApiErrorResponse("invalid_content", "消息内容不能为空。", string.Empty, null));
             }
 
             // 校验附件
@@ -49,12 +50,12 @@ internal static class RunEndpoints
                 {
                     if (!File.Exists(att.Path))
                     {
-                        return Results.UnprocessableEntity(new { code = "invalid_attachment", message = $"附件文件不存在：{att.Path}" });
+                        return Results.UnprocessableEntity(new ApiErrorResponse("invalid_attachment", $"附件文件不存在：{att.Path}", string.Empty, null));
                     }
 
                     if (!SupportedImageMediaTypes.Contains(att.MediaType))
                     {
-                        return Results.BadRequest(new { code = "invalid_media_type", message = $"不支持的媒体类型：{att.MediaType}" });
+                        return Results.BadRequest(new ApiErrorResponse("invalid_media_type", $"不支持的媒体类型：{att.MediaType}", string.Empty, null));
                     }
 
                     attachments.Add(new AgentMessageAttachment(att.Path, att.MediaType));
@@ -121,7 +122,7 @@ internal static class RunEndpoints
             CancellationToken ct) =>
         {
             await coordinator.ResolveApprovalAsync(runId, approvalId, request.Approved, ct);
-            return Results.Ok(new { resolved = true });
+            return Results.NoContent();
         });
 
         // 取消 Run

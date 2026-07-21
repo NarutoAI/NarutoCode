@@ -3,8 +3,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>narutocode-desktop-api</AssemblyName>
-    <PublishAot>true</PublishAot>
-    <SelfContained>true</SelfContained>
+    <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
+    <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
     <DebugType Condition="'$(Configuration)' == 'Release'">None</DebugType>
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
   </PropertyGroup>

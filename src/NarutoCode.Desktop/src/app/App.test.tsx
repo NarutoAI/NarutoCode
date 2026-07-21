@@ -6,7 +6,7 @@ const api = {
   getBackendState: vi.fn(), restartBackend: vi.fn(), openLogsDirectory: vi.fn(),
   listWorkspaces: vi.fn(), addWorkspace: vi.fn(), openWorkspaceFolder: vi.fn(),
   listConversations: vi.fn(), createConversation: vi.fn(), loadConversation: vi.fn(),
-  getLlmSettings: vi.fn(), switchProvider: vi.fn(), switchEffort: vi.fn(), selectImages: vi.fn(),
+  getLlmSettings: vi.fn(), switchProvider: vi.fn(), switchEffort: vi.fn(), selectImages: vi.fn(), pasteClipboardImage: vi.fn(),
   startRun: vi.fn(), resolveApproval: vi.fn(), cancelRun: vi.fn(), onRunEvent: vi.fn(() => () => {}),
 }
 
@@ -33,6 +33,23 @@ describe('App', () => {
     expect(await screen.findByText('后端暂时不可用')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看日志' }))
     await waitFor(() => expect(api.openLogsDirectory).toHaveBeenCalledOnce())
+  })
+
+  it('renders conversations for every workspace without selecting a workspace first', async () => {
+    api.getBackendState.mockResolvedValue({ connected: true, error: null })
+    api.listWorkspaces.mockResolvedValue([
+      { id: 'workspace-1', name: 'demo-a', workDirectory: '/tmp/demo-a', lastUpdatedAt: '', conversationCount: 1, directoryExists: true },
+      { id: 'workspace-2', name: 'demo-b', workDirectory: '/tmp/demo-b', lastUpdatedAt: '', conversationCount: 1, directoryExists: true },
+    ])
+    api.listConversations.mockImplementation(async (workspaceId: string) => [{
+      id: `conversation-${workspaceId}`,
+      title: workspaceId === 'workspace-1' ? '项目 A 会话' : '项目 B 会话',
+      createdAt: '', updatedAt: '', messageCount: 0, tokenCount: 0, lastUsageTokenCount: 0, lastUserMessagePreview: '',
+    }])
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: /项目 A 会话/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /项目 B 会话/ })).toBeInTheDocument()
   })
 
   it('does not treat the scroll operation result as an effect cleanup function', async () => {
@@ -72,6 +89,107 @@ describe('App', () => {
 
     expect(await screen.findByText('NarutoCode')).toBeInTheDocument()
     expect(screen.getByLabelText('输入消息')).toBeInTheDocument()
+  })
+
+  it('updates the selected LLM settings immediately after a successful switch', async () => {
+    api.getBackendState.mockResolvedValue({ connected: true, error: null })
+    api.listWorkspaces.mockResolvedValue([])
+    api.getLlmSettings.mockResolvedValue({
+      currentProvider: 'glm52',
+      currentEffort: 'Medium',
+      providers: ['glm52', 'claude'],
+      efforts: ['Low', 'Medium', 'High'],
+    })
+    render(<App />)
+
+    const provider = await screen.findByLabelText('模型提供方')
+    const effort = screen.getByLabelText('推理强度')
+    fireEvent.change(provider, { target: { value: 'claude' } })
+    fireEvent.change(effort, { target: { value: 'High' } })
+
+    await waitFor(() => expect(api.switchProvider).toHaveBeenCalledWith('claude'))
+    await waitFor(() => expect(api.switchEffort).toHaveBeenCalledWith('High'))
+    expect(provider).toHaveValue('claude')
+    expect(effort).toHaveValue('High')
+  })
+
+  it('keeps an optimistic user message visible when switching away from an active conversation', async () => {
+    api.getBackendState.mockResolvedValue({ connected: true, error: null })
+    api.listWorkspaces.mockResolvedValue([{ id: 'workspace-1', name: 'demo', workDirectory: '/tmp/demo', lastUpdatedAt: '', conversationCount: 2, directoryExists: true }])
+    api.listConversations.mockResolvedValue([
+      { id: 'conversation-1', title: '运行中的会话', createdAt: '', updatedAt: '', messageCount: 0, tokenCount: 0, lastUsageTokenCount: 0, lastUserMessagePreview: '' },
+      { id: 'conversation-2', title: '另一个会话', createdAt: '', updatedAt: '', messageCount: 0, tokenCount: 0, lastUsageTokenCount: 0, lastUserMessagePreview: '' },
+    ])
+    api.loadConversation.mockImplementation(async (conversationId: string) => ({ id: conversationId, tokenCount: 0, messages: [] }))
+    api.startRun.mockResolvedValue({ runId: 'run-1', status: 'running', eventsUrl: '' })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '展开 demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /运行中的会话/ }))
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '切换后仍需显示' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    expect(await screen.findByText('切换后仍需显示')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /另一个会话/ }))
+    expect(await screen.findByRole('heading', { name: '另一个会话' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /运行中的会话/ }))
+
+    expect(await screen.findByText('切换后仍需显示')).toBeInTheDocument()
+    expect(screen.getAllByText('切换后仍需显示')).toHaveLength(1)
+  })
+
+  it('adds a pasted image attachment and sends it without draft text', async () => {
+    api.getBackendState.mockResolvedValue({ connected: true, error: null })
+    api.listWorkspaces.mockResolvedValue([{ id: 'workspace-1', name: 'demo', workDirectory: '/tmp/demo', lastUpdatedAt: '', conversationCount: 1, directoryExists: true }])
+    api.listConversations.mockResolvedValue([{ id: 'conversation-1', title: '图片会话', createdAt: '', updatedAt: '', messageCount: 0, tokenCount: 0, lastUsageTokenCount: 0, lastUserMessagePreview: '' }])
+    api.loadConversation.mockResolvedValue({ id: 'conversation-1', tokenCount: 0, messages: [] })
+    api.pasteClipboardImage.mockResolvedValue({ path: '/tmp/demo/tmp/clipboard-images/clipboard.png', mediaType: 'image/png' })
+    api.startRun.mockResolvedValue({ runId: 'run-1', status: 'running', eventsUrl: '' })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '展开 demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /图片会话/ }))
+    fireEvent.paste(screen.getByLabelText('输入消息'), {
+      clipboardData: { items: [{ type: 'image/png' }] },
+    })
+
+    expect(await screen.findByText('clipboard.png')).toBeInTheDocument()
+    expect(api.pasteClipboardImage).toHaveBeenCalledWith('/tmp/demo')
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    await waitFor(() => expect(api.startRun).toHaveBeenCalledWith({
+      conversationId: 'conversation-1',
+      content: '[图片]',
+      attachments: [{ path: '/tmp/demo/tmp/clipboard-images/clipboard.png', mediaType: 'image/png' }],
+    }))
+  })
+
+  it('queues messages during a run and starts them in FIFO order after completion', async () => {
+    const listeners = new Map<string, (event: any) => void>()
+    api.getBackendState.mockResolvedValue({ connected: true, error: null })
+    api.listWorkspaces.mockResolvedValue([{ id: 'workspace-1', name: 'demo', workDirectory: '/tmp/demo', lastUpdatedAt: '', conversationCount: 1, directoryExists: true }])
+    api.listConversations.mockResolvedValue([{ id: 'conversation-1', title: '队列会话', createdAt: '', updatedAt: '', messageCount: 0, tokenCount: 0, lastUsageTokenCount: 0, lastUserMessagePreview: '' }])
+    api.loadConversation.mockResolvedValue({ id: 'conversation-1', tokenCount: 0, messages: [] })
+    api.startRun.mockResolvedValueOnce({ runId: 'run-1', status: 'running', eventsUrl: '' }).mockResolvedValueOnce({ runId: 'run-2', status: 'running', eventsUrl: '' })
+    ;(api.onRunEvent as any).mockImplementation((runId: string, listener: (event: any) => void) => { listeners.set(runId, listener); return () => {} })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '展开 demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /队列会话/ }))
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '第一条任务' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    await waitFor(() => expect(api.startRun).toHaveBeenCalledTimes(1))
+
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '第二条任务' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    expect(await screen.findByText('排队消息（1）')).toBeInTheDocument()
+    expect(screen.getByText('第二条任务')).toBeInTheDocument()
+    expect(api.startRun).toHaveBeenCalledTimes(1)
+
+    act(() => listeners.get('run-1')?.({ runId: 'run-1', sequence: 1, eventType: 'run.completed', content: null, approvalId: null }))
+    await waitFor(() => expect(api.startRun).toHaveBeenNthCalledWith(2, {
+      conversationId: 'conversation-1', content: '第二条任务', attachments: [],
+    }))
+    expect(screen.queryByText('排队消息（1）')).not.toBeInTheDocument()
   })
 
   it('renders streaming markdown and exposes thinking, tool, and approval controls', async () => {

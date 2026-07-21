@@ -1,4 +1,6 @@
-﻿import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+﻿import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import started from 'electron-squirrel-startup'
 import { DesktopApiClient } from './main/DesktopApiClient'
@@ -52,8 +54,11 @@ function requireClient(): DesktopApiClient {
 async function startSidecar(): Promise<BackendState> {
   try {
     sidecar?.stop()
+    const resourcesPath = app.isPackaged
+      ? process.resourcesPath
+      : join(__dirname, '..', '..', 'resources')
     const executable = process.env.NARUTOCODE_DESKTOP_API_EXECUTABLE
-      ?? resolveBackendExecutable(process.resourcesPath)
+      ?? resolveBackendExecutable(resourcesPath)
     sidecar = new SidecarManager(executable, appDataDirectory, logger!)
     const connection = await sidecar.start()
     apiClient = new DesktopApiClient(connection.baseUrl, connection.token)
@@ -104,6 +109,17 @@ function registerIpcHandlers(): void {
       path,
       mediaType: mediaTypes[path.slice(path.lastIndexOf('.')).toLowerCase()] ?? 'application/octet-stream',
     }))
+  })
+  ipcMain.handle('attachment:paste-clipboard-image', async (_event, workDirectory: string): Promise<Attachment | null> => {
+    const image = clipboard.readImage()
+    if (image.isEmpty()) return null
+
+    // 将剪贴板内容落在当前工作区，后端和 Agent 均可使用该绝对路径读取图片。
+    const imageDirectory = join(workDirectory, 'tmp', 'clipboard-images')
+    await mkdir(imageDirectory, { recursive: true })
+    const path = join(imageDirectory, `clipboard-${Date.now()}-${randomUUID()}.png`)
+    await writeFile(path, image.toPNG())
+    return { path, mediaType: 'image/png' }
   })
 
   ipcMain.handle('run:start', async (_event, request: StartRunRequest): Promise<StartRunResponse> => {

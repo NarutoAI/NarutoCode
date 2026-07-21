@@ -1,6 +1,7 @@
 ﻿using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Enums;
 using NarutoCode.Desktop.Api.Contracts;
+using NarutoCode.Desktop.Api.Errors;
 
 namespace NarutoCode.Desktop.Api.Endpoints;
 
@@ -27,28 +28,28 @@ internal static class LlmSettingsEndpoints
             return Results.Ok(response);
         });
 
-        // 切换 provider
+        // 切换 provider；成功后返回 204，避免 AOT 下匿名对象序列化失败
         group.MapPut("/provider", (SwitchProviderRequest request, ILlmSettingsService settings) =>
         {
             if (string.IsNullOrWhiteSpace(request.Provider))
             {
-                return Results.BadRequest(new { code = "invalid_provider", message = "provider 不能为空。" });
+                return Results.BadRequest(new ApiErrorResponse("invalid_provider", "provider 不能为空。", string.Empty, null));
             }
 
             settings.SwitchProvider(request.Provider);
-            return Results.Ok(new { provider = settings.CurrentProvider });
+            return Results.NoContent();
         });
 
-        // 切换推理强度
+        // 切换推理强度；成功后返回 204，避免 AOT 下匿名对象序列化失败
         group.MapPut("/effort", (SwitchEffortRequest request, ILlmSettingsService settings) =>
         {
             if (!Enum.TryParse<LlmEffort>(request.Effort, ignoreCase: true, out var effort))
             {
-                return Results.BadRequest(new { code = "invalid_effort", message = $"无效的推理强度：{request.Effort}" });
+                return Results.BadRequest(new ApiErrorResponse("invalid_effort", $"无效的推理强度：{request.Effort}", string.Empty, null));
             }
 
             settings.SwitchEffort(effort);
-            return Results.Ok(new { effort = settings.CurrentEffort.ToString() });
+            return Results.NoContent();
         });
 
         return app;

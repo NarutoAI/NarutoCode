@@ -15,6 +15,7 @@ const api: NarutoCodeApi = {
   switchProvider: provider => ipcRenderer.invoke('settings:switch-provider', provider),
   switchEffort: effort => ipcRenderer.invoke('settings:switch-effort', effort),
   selectImages: () => ipcRenderer.invoke('attachment:select-images'),
+  pasteClipboardImage: workDirectory => ipcRenderer.invoke('attachment:paste-clipboard-image', workDirectory),
   startRun: (request: StartRunRequest) => ipcRenderer.invoke('run:start', request),
   resolveApproval: (runId, approvalId, approved) => ipcRenderer.invoke('run:approve', runId, approvalId, approved),
   cancelRun: runId => ipcRenderer.invoke('run:cancel', runId),

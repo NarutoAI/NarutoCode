@@ -11,6 +11,47 @@ import type {
 } from '../shared/contracts'
 import { DesktopApiError } from '../shared/contracts'
 
+/** Desktop API SSE 负载，兼容当前与旧版 Native AOT 后端的 JSON 属性命名。 */
+type RunEventPayload = Partial<RunEvent> & {
+  RunId?: unknown
+  Sequence?: unknown
+  EventType?: unknown
+  Timestamp?: unknown
+  Content?: unknown
+  MessageType?: unknown
+  ApprovalContent?: unknown
+  ApprovalId?: unknown
+}
+
+/** 读取可选字符串字段，非字符串负载统一视为 null。 */
+function readNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+/** 将后端 SSE JSON 负载转换为 Renderer 使用的统一 camelCase 事件。 */
+export function parseRunEvent(data: string): RunEvent {
+  const payload = JSON.parse(data) as RunEventPayload
+  const runId = payload.runId ?? payload.RunId
+  const sequence = payload.sequence ?? payload.Sequence
+  const eventType = payload.eventType ?? payload.EventType
+  const timestamp = payload.timestamp ?? payload.Timestamp
+
+  if (typeof runId !== 'string' || typeof sequence !== 'number' || typeof eventType !== 'string' || typeof timestamp !== 'string') {
+    throw new Error('Desktop API 返回了无效的 Run SSE 事件。')
+  }
+
+  return {
+    runId,
+    sequence,
+    eventType,
+    timestamp,
+    content: readNullableString(payload.content ?? payload.Content),
+    messageType: readNullableString(payload.messageType ?? payload.MessageType),
+    approvalContent: readNullableString(payload.approvalContent ?? payload.ApprovalContent),
+    approvalId: readNullableString(payload.approvalId ?? payload.ApprovalId),
+  }
+}
+
 /** Authenticated Main-process client for the loopback Desktop API. */
 export class DesktopApiClient {
   constructor(
@@ -81,7 +122,7 @@ export class DesktopApiClient {
       signal,
     })
     await this.ensureSuccess(response)
-    await readSse(response, event => onEvent(JSON.parse(event.data) as RunEvent), signal)
+    await readSse(response, event => onEvent(parseRunEvent(event.data)), signal)
   }
 
   private async get<T>(path: string): Promise<T> {

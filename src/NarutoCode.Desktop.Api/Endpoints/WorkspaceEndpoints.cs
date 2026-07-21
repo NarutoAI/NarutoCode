@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Desktop.Api.Contracts;
+using NarutoCode.Desktop.Api.Errors;
 using NarutoCode.Domain.Workspaces;
 
 namespace NarutoCode.Desktop.Api.Endpoints;
@@ -36,7 +37,7 @@ internal static class WorkspaceEndpoints
         {
             if (string.IsNullOrWhiteSpace(request.WorkDirectory))
             {
-                return Results.BadRequest(new { code = "invalid_work_directory", message = "工作目录不能为空。" });
+                return Results.BadRequest(new ApiErrorResponse("invalid_work_directory", "工作目录不能为空。", string.Empty, null));
             }
 
             var result = await service.OpenWorkspaceAsync(request.WorkDirectory, ct);
@@ -65,13 +66,13 @@ internal static class WorkspaceEndpoints
         {
             if (!long.TryParse(workspaceId, CultureInfo.InvariantCulture, out var projectId))
             {
-                return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
+                return Results.NotFound(new ApiErrorResponse("workspace_not_found", $"工作区 {workspaceId} 不存在。", string.Empty, null));
             }
 
             var summaries = await service.ListWorkspacesAsync(ct);
             if (!summaries.Any(s => s.Id == projectId))
             {
-                return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
+                return Results.NotFound(new ApiErrorResponse("workspace_not_found", $"工作区 {workspaceId} 不存在。", string.Empty, null));
             }
 
             var conversations = await service.ListProjectConversationsAsync(projectId, ct);
@@ -95,14 +96,14 @@ internal static class WorkspaceEndpoints
         {
             if (!long.TryParse(workspaceId, CultureInfo.InvariantCulture, out var projectId))
             {
-                return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
+                return Results.NotFound(new ApiErrorResponse("workspace_not_found", $"工作区 {workspaceId} 不存在。", string.Empty, null));
             }
 
             var summaries = await service.ListWorkspacesAsync(ct);
             var match = summaries.FirstOrDefault(s => s.Id == projectId);
             if (match is null)
             {
-                return Results.NotFound(new { code = "workspace_not_found", message = $"工作区 {workspaceId} 不存在。" });
+                return Results.NotFound(new ApiErrorResponse("workspace_not_found", $"工作区 {workspaceId} 不存在。", string.Empty, null));
             }
 
             var history = await service.CreateProjectConversationAsync(projectId, ct);

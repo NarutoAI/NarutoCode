@@ -115,6 +115,7 @@ export interface NarutoCodeApi {
   switchProvider(provider: string): Promise<void>
   switchEffort(effort: string): Promise<void>
   selectImages(): Promise<Attachment[]>
+  pasteClipboardImage(workDirectory: string): Promise<Attachment | null>
   startRun(request: StartRunRequest): Promise<StartRunResponse>
   resolveApproval(runId: string, approvalId: string, approved: boolean): Promise<void>
   cancelRun(runId: string): Promise<void>
