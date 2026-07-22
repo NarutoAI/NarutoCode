@@ -227,8 +227,8 @@ public sealed class WeComChannel : IGatewayChannel
     }
 
     /// <summary>
-    /// 处理消息回调：提取文本和图片 → 去重 → 构造入站消息 → 触发事件。
-    /// 支持纯文本、纯图片、mixed 混合消息（文字+图片）。
+    /// 处理消息回调：提取文本和图片（含引用消息）→ 去重 → 构造入站消息 → 触发事件。
+    /// 支持纯文本、纯图片、mixed 混合消息，以及 quote 引用消息中的文本和图片。
     /// </summary>
     private async Task HandleMsgCallbackAsync(JsonElement root, string? reqId, CancellationToken ct)
     {
@@ -242,8 +242,27 @@ public sealed class WeComChannel : IGatewayChannel
         var senderName = body.TryGetProperty("from", out var from2) ? GetString(from2, "name") : null;
         var text = ReadText(body);
 
-        // 提取并下载图片附件（支持纯图片消息和 mixed 混合消息中的图片项）
-        var attachments = await DownloadImagesAsync(body, ct);
+        // 提取并下载当前消息的图片附件
+        var attachments = new List<GatewayInboundAttachment>();
+        attachments.AddRange(await DownloadImagesAsync(body, ct));
+
+        // 提取引用消息的文本和图片，引用内容的结构和 body 相同（msgtype/text/image/mixed）
+        if (body.TryGetProperty("quote", out var quote) && quote.ValueKind == JsonValueKind.Object)
+        {
+            var quoteText = ReadText(quote);
+            var quoteImages = await DownloadImagesAsync(quote, ct);
+
+            if (!string.IsNullOrWhiteSpace(quoteText))
+            {
+                // 将引用文本以引用块形式拼接到用户消息前面
+                text = string.IsNullOrWhiteSpace(text)
+                    ? $"「引用消息」\n{quoteText}"
+                    : $"「引用消息」\n{quoteText}\n\n{text}";
+            }
+
+            // 引用消息中的图片也作为附件传给 AI
+            attachments.AddRange(quoteImages);
+        }
 
         // 消息去重
         if (!string.IsNullOrWhiteSpace(msgId) && !_dedup.TryClaim(msgId!))
