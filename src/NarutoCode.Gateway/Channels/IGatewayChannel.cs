@@ -17,12 +17,12 @@ public interface IGatewayChannel : IAsyncDisposable
     Task StartAsync(CancellationToken ct);
 
     /// <summary>
-    /// 发送回复消息给指定接收者。
+    /// 发送或更新一条回复消息。
+    /// 支持通道基于同一 StreamId 持续展示流式内容。
     /// </summary>
-    /// <param name="recipientId">接收者标识（用户ID或群聊ID）。</param>
-    /// <param name="text">回复文本。</param>
+    /// <param name="message">待发送的出站消息。</param>
     /// <param name="ct">取消令牌。</param>
-    ValueTask SendAsync(string recipientId, string text, CancellationToken ct);
+    ValueTask SendAsync(GatewayOutboundMessage message, CancellationToken ct);
 
     /// <summary>
     /// 入站消息事件，网关宿主订阅后桥接到 Agent 会话。

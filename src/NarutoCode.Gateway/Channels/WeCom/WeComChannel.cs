@@ -315,52 +315,54 @@ public sealed class WeComChannel : IGatewayChannel
 
     // ════════════════════════════ 发送回复 ════════════════════════════
 
-    public async ValueTask SendAsync(string recipientId, string text, CancellationToken ct)
+    public async ValueTask SendAsync(GatewayOutboundMessage message, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(message.Text))
             return;
 
         try
         {
-            // 优先 WebSocket 回复（24h 内有入站上下文）
-            if (await TrySendViaWsAsync(recipientId, text, ct))
+            // 优先通过 WebSocket 更新同一条流式回复（回传原 req_id）。
+            if (await TrySendViaWsAsync(message, ct))
                 return;
 
-            // 降级 REST API
+            // REST API 不支持更新流；仅在最终完成帧降级为一次完整文本回复。
+            if (!message.IsCompleted)
+                return;
+
             if (HasApiCredentials())
             {
                 await RefreshAccessTokenAsync(ct);
-                await SendViaApiAsync(recipientId, text, ct);
+                await SendViaApiAsync(message.RecipientId, message.Text, ct);
             }
             else
             {
-                Log.WeComApiCredentialsMissing(_logger, recipientId);
+                Log.WeComApiCredentialsMissing(_logger, message.RecipientId);
             }
         }
         catch (Exception ex)
         {
-            Log.WeComSendFailed(_logger, recipientId, ex);
+            Log.WeComSendFailed(_logger, message.RecipientId, ex);
         }
     }
 
     /// <summary>
-    /// 尝试通过 WebSocket 回复（需 24h 内入站上下文，回传原 req_id）。
+    /// 尝试通过 WebSocket 回复或更新流式消息（需 24h 内入站上下文，回传原 req_id）。
     /// </summary>
-    private async Task<bool> TrySendViaWsAsync(string recipientId, string text, CancellationToken ct)
+    private async Task<bool> TrySendViaWsAsync(GatewayOutboundMessage message, CancellationToken ct)
     {
-        if (!_replyContexts.TryGetValue(recipientId, out var ctx))
+        if (!_replyContexts.TryGetValue(message.RecipientId, out var ctx))
             return false;
 
         // 超过 24h 的上下文无效
         if (DateTimeOffset.UtcNow - ctx.ReceivedAt > TimeSpan.FromHours(24))
         {
-            _replyContexts.TryRemove(recipientId, out _);
+            _replyContexts.TryRemove(message.RecipientId, out _);
             return false;
         }
 
-        var streamId = Guid.NewGuid().ToString("N");
         var body = "\"msgtype\":\"stream\"," +
-                   $"\"stream\":{{\"id\":{JsonStr(streamId)},\"finish\":true,\"content\":{JsonStr(text)}}}";
+                   $"\"stream\":{{\"id\":{JsonStr(message.StreamId)},\"finish\":{message.IsCompleted.ToString().ToLowerInvariant()},\"content\":{JsonStr(message.Text)}}}";
         var json = BuildFrame("aibot_respond_msg", ctx.ReqId, body);
 
         return await SendWsTextAsync(json, ct);

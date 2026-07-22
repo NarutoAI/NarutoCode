@@ -188,7 +188,87 @@ narutocode /path/to/workspace
 
 启动后，NarutoCode 会以该目录作为当前工作区。后续让 Agent 查看、修改或执行的内容都会基于这个工作区。
 
-## 3. 切换模型 Provider
+## 3. 启动网关（可选）
+
+网关是一个独立的可执行程序，作用是把 NarutoCode 的 Agent 能力扩展到外部消息通道（如企业微信）。网关启动后，外部用户通过企业微信机器人发来的消息，会交给 Agent 处理并自动回复。
+
+### 适用场景
+
+- 在企业微信中通过 AI 机器人与 NarutoCode 交互
+- 远程让 Agent 分析项目、修改代码、排查问题
+- 不需要打开终端，通过聊天窗口即可使用 Agent 能力
+
+### 准备网关配置
+
+网关使用独立的配置文件，不影响 `config.json`：
+
+```text
+~/.narutocode/gateway.json
+```
+
+示例配置：
+
+```json
+{
+  "workspace": "/path/to/your/project",
+  "wecom": {
+    "enabled": true,
+    "botId": "aib-xxxxx",
+    "botSecret": "your-bot-secret",
+    "corpId": "your-corp-id",
+    "corpSecret": "your-corp-secret",
+    "agentId": 1000002,
+    "maxInboundChars": 4096
+  }
+}
+```
+
+企业微信凭据也可以通过环境变量提供，优先级高于配置文件：
+
+| 环境变量 | 对应配置项 |
+| --- | --- |
+| `WECOM_BOT_ID` | `wecom.botId` |
+| `WECOM_BOT_SECRET` | `wecom.botSecret` |
+| `WECOM_CORP_ID` | `wecom.corpId` |
+| `WECOM_CORP_SECRET` | `wecom.corpSecret` |
+| `WECOM_AGENT_ID` | `wecom.agentId` |
+
+### 启动网关
+
+```bash
+./narutocode-gateway
+```
+
+也可以指定配置文件路径：
+
+```bash
+./narutocode-gateway --config /path/to/gateway.json
+```
+
+启动成功后会输出：
+
+```text
+网关已启动，按 Ctrl-C 退出。
+```
+
+之后在企业微信中对机器人发送消息，Agent 会处理后自动回复。所有消息共享 `workspace` 指定的同一个工作目录会话。
+
+### 网关配置项说明
+
+| 配置项 | 必填 | 说明 |
+| --- | --- | --- |
+| `workspace` | 是 | 固定工作目录路径，所有通道消息交给该目录的 Agent 会话处理。 |
+| `wecom.enabled` | 否 | 是否启用企业微信通道，`false` 时不启动。 |
+| `wecom.botId` | 是 | 企业微信 AI 机器人 BotId，格式 `aib-xxxxx`。 |
+| `wecom.botSecret` | 是 | AI 机器人长连接 Secret。 |
+| `wecom.corpId` | 否 | 企业 CorpID，REST API 降级发送使用。 |
+| `wecom.corpSecret` | 否 | 自建应用 Secret，用于获取 access_token。 |
+| `wecom.agentId` | 否 | 自建应用 AgentId。 |
+| `wecom.maxInboundChars` | 否 | 入站消息最大字符数，超出截断，默认 `4096`。 |
+
+> `botId` 和 `botSecret` 用于接收消息（WebSocket 长连接）。`corpId`、`corpSecret`、`agentId` 为可选的 REST API 凭据，仅在 WebSocket 回复不可用时降级使用。
+
+## 4. 切换模型 Provider
 
 如果 `config.json` 中配置了多个模型，可以在运行中使用 `/provider` 查看和切换当前模型。
 
@@ -212,7 +292,7 @@ narutocode /path/to/workspace
 
 下次启动时会优先使用这个 provider。如果 `settings.json` 没有有效 provider，则自动使用 `llms` 数组的第一个配置。
 
-## 4. 配置推理强度
+## 5. 配置推理强度
 
 可以使用 `/effort` 查看和切换当前推理强度。
 
@@ -236,7 +316,7 @@ narutocode /path/to/workspace
 
 下次启动时会优先使用这个 effort。如果 `settings.json` 没有配置 effort，则默认使用 `medium`。
 
-## 5. 输入任务
+## 6. 输入任务
 
 启动后可以直接输入自然语言任务，例如：
 
@@ -256,7 +336,7 @@ narutocode /path/to/workspace
 运行测试并修复失败的问题
 ```
 
-## 6. 图片输入
+## 7. 图片输入
 
 如果需要让 Agent 分析图片，可以使用 `/image`：
 
@@ -276,7 +356,7 @@ png、jpg、jpeg、webp、gif
 /image ./before.png ./after.png 对比这两张图的差异
 ```
 
-## 6. 工具审批
+## 8. 工具审批
 
 默认情况下：
 
@@ -303,18 +383,18 @@ Shell 工具不需要额外审批。
 - `1`：同意执行
 - `0`：拒绝执行
 
-## 7. 运行中继续输入
+## 9. 运行中继续输入
 
 当 Agent 正在回复或执行任务时，你仍然可以继续输入下一条消息。NarutoCode 会把新输入加入队列，等当前任务结束后继续处理。
 
-## 8. 取消和退出
+## 10. 取消和退出
 
 - 取消当前操作：按 `Ctrl+C`
 - 退出工具：输入 `exit` 或 `quit`
 
 如果当前有正在运行的 Agent 操作，第一次 `Ctrl+C` 会优先取消当前操作。
 
-## 9. 会话历史和本地数据
+## 11. 会话历史和本地数据
 
 NarutoCode 会按工作目录保存会话历史。默认数据文件位置：
 
@@ -324,7 +404,7 @@ NarutoCode 会按工作目录保存会话历史。默认数据文件位置：
 
 下次在同一个工作目录启动时，会自动加载对应的历史会话。控制台会保留可见聊天记录；发送给模型的上下文会按配置自动压缩和截断，以减少长会话占用并避免超过模型窗口。
 
-## 10. 常见问题
+## 12. 常见问题
 
 ### 提示配置文件不存在怎么办？
 
