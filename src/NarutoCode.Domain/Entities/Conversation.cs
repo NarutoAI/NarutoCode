@@ -1,4 +1,6 @@
-﻿namespace NarutoCode.Domain.Entities;
+﻿using NarutoCode.Domain.Enums;
+
+namespace NarutoCode.Domain.Entities;
 
 /// <summary>
 /// 对话实体
@@ -55,4 +57,10 @@ public class Conversation
     /// 最近一次 LLM 调用的输入 Token 数量，用于压缩策略判断上下文窗口占用。
     /// </summary>
     public long LastInputTokenCount { get; set; }
+
+    /// <summary>
+    /// 会话来源类型。Local=本地终端/桌面端创建，Channel=外部通道（如企业微信）创建。
+    /// 通道会话不在 TUI 和桌面端显示。
+    /// </summary>
+    public ConversationSource Source { get; set; } = ConversationSource.Local;
 }

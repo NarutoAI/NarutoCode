@@ -1,4 +1,5 @@
-﻿using NarutoCode.Domain.Messages;
+﻿using NarutoCode.Domain.Enums;
+using NarutoCode.Domain.Messages;
 
 namespace NarutoCode.Domain.Conversations;
 
@@ -116,5 +117,18 @@ public interface IConversationService
     /// <returns>打开后的会话历史及是否新建标志。</returns>
     Task<OpenWorkspaceResult> OpenWorkspaceAsync(
         string workDirectory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 打开或创建指定来源类型的通道会话（如企业微信）。
+    /// 按 Source 过滤，不在 TUI 和桌面端显示。
+    /// </summary>
+    /// <param name="workDirectory">工作目录。</param>
+    /// <param name="source">会话来源类型。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>打开后的会话历史及是否新建标志。</returns>
+    Task<OpenWorkspaceResult> OpenWorkspaceBySourceAsync(
+        string workDirectory,
+        ConversationSource source,
         CancellationToken cancellationToken = default);
 }

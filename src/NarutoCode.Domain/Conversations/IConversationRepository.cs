@@ -1,4 +1,5 @@
 ﻿using NarutoCode.Domain.Entities;
+using NarutoCode.Domain.Enums;
 
 namespace NarutoCode.Domain.Conversations;
 
@@ -66,6 +67,19 @@ public interface IConversationRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 获取或创建指定项目下指定来源类型的最近会话。
+    /// 网关按通道类型（如 WeCom）查询对应会话，不会出现在 TUI 和桌面端的会话列表中。
+    /// </summary>
+    /// <param name="projectId">项目主键。</param>
+    /// <param name="source">会话来源类型。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>匹配来源类型的会话实体。</returns>
+    Task<Conversation> GetOrCreateBySourceAsync(
+        long projectId,
+        ConversationSource source,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 为指定项目创建一个新会话。
     /// </summary>
     /// <param name="projectId">项目主键。</param>
@@ -73,6 +87,18 @@ public interface IConversationRepository
     /// <returns>新创建的会话实体。</returns>
     Task<Conversation> CreateForProjectIdAsync(
         long projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 为指定项目创建一个新会话，并指定会话来源类型。
+    /// </summary>
+    /// <param name="projectId">项目主键。</param>
+    /// <param name="source">会话来源类型。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>新创建的会话实体。</returns>
+    Task<Conversation> CreateForProjectIdAsync(
+        long projectId,
+        ConversationSource source,
         CancellationToken cancellationToken = default);
 
     /// <summary>

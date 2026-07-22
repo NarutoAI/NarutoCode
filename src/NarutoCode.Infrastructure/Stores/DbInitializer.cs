@@ -20,6 +20,7 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
         await EnsureConversationLastUsageTokenCountColumnAsync(connection, cancellationToken);
         await EnsureConversationLastInputTokenCountColumnAsync(connection, cancellationToken);
         await EnsureConversationProjectIdColumnAsync(connection, cancellationToken);
+        await EnsureConversationSourceColumnAsync(connection, cancellationToken);
         await EnsureMessageVisibilityColumnAsync(connection, cancellationToken);
         await NormalizeConversationWorkDirectoriesAsync(connection, cancellationToken);
         await BackfillProjectsFromConversationsAsync(connection, cancellationToken);
@@ -57,6 +58,7 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
                 "TokenCount" INTEGER NOT NULL DEFAULT 0,
                 "LastUsageTokenCount" INTEGER NOT NULL DEFAULT 0,
                 "LastInputTokenCount" INTEGER NOT NULL DEFAULT 0,
+                "Source" INTEGER NOT NULL DEFAULT 0,
                 CONSTRAINT "FK_Conversations_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE RESTRICT
             );
             """,
@@ -90,6 +92,7 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_UpdatedAt\" ON \"Conversations\" (\"UpdatedAt\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_WorkDirectory\" ON \"Conversations\" (\"WorkDirectory\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_ProjectId_UpdatedAt\" ON \"Conversations\" (\"ProjectId\", \"UpdatedAt\" DESC);",
+            "CREATE INDEX IF NOT EXISTS \"IX_Conversations_ProjectId_Source_UpdatedAt\" ON \"Conversations\" (\"ProjectId\", \"Source\", \"UpdatedAt\" DESC);",
             "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId\" ON \"Messages\" (\"ConversationId\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId_CreatedAt\" ON \"Messages\" (\"ConversationId\", \"CreatedAt\");",
             "CREATE INDEX IF NOT EXISTS \"IX_ConversationRuntimeMessages_ConversationId\" ON \"ConversationRuntimeMessages\" (\"ConversationId\");",
@@ -210,6 +213,32 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
         // 旧表通过可空列平滑升级；完成 Projects 回填后统一填充该字段。
         await using var alterCommand = connection.CreateCommand();
         alterCommand.CommandText = "ALTER TABLE \"Conversations\" ADD COLUMN \"ProjectId\" INTEGER NULL;";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 确保旧版本本地数据库包含会话来源字段。
+    /// </summary>
+    private static async Task EnsureConversationSourceColumnAsync(
+        DbConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using (var checkCommand = connection.CreateCommand())
+        {
+            checkCommand.CommandText = "PRAGMA table_info('Conversations');";
+            await using var reader = await checkCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), "Source", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+        }
+
+        // 默认值 0 = Local，存量会话全部标记为本地来源
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE \"Conversations\" ADD COLUMN \"Source\" INTEGER NOT NULL DEFAULT 0;";
         await alterCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 

@@ -3,6 +3,7 @@ using NarutoCode.Application.Agents;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 
@@ -137,6 +138,25 @@ public class ConversationService(
             : await LoadConversationHistoryAsync(new ConversationSessionId(existing.Id), cancellationToken);
 
         return new OpenWorkspaceResult(history, existing is null);
+    }
+
+    /// <inheritdoc />
+    public async Task<OpenWorkspaceResult> OpenWorkspaceBySourceAsync(
+        string workDirectory,
+        ConversationSource source,
+        CancellationToken cancellationToken = default)
+    {
+        // 复用项目定位逻辑，确保网关和本地共享同一个项目记录
+        var workspace = await GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
+
+        // 查询该项目下指定来源的最近会话
+        var conversation = await conversationRepository.GetOrCreateBySourceAsync(
+            workspace.Id, source, cancellationToken);
+
+        var history = await LoadConversationHistoryAsync(
+            new ConversationSessionId(conversation.Id), cancellationToken);
+
+        return new OpenWorkspaceResult(history, false);
     }
 
     private static ConversationHistoryMessage ToHistoryMessage(Message message)

@@ -3,6 +3,7 @@ using System.Globalization;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
@@ -74,11 +75,13 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 ON m."ConversationId" = c."Id"
                AND m."Visibility" = $visibility
             WHERE p."WorkDirectory" = $workDirectory
+              AND c."Source" = $localSource
             GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt", c."TokenCount", c."LastUsageTokenCount"
             ORDER BY c."UpdatedAt" DESC;
             """;
         AddParameter(command, "$workDirectory", workDirectory);
         AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
+        AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
         var summaries = new List<ConversationSummary>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -124,11 +127,12 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 COALESCE(MAX(c."UpdatedAt"), p."UpdatedAt") AS "LastUpdatedAt",
                 COUNT(c."Id") AS "ConversationCount"
             FROM "Projects" p
-            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id"
+            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id" AND c."Source" = $localSource
             WHERE p."Id" = $projectId
             GROUP BY p."Id", p."Name", p."WorkDirectory", p."SortOrder", p."CreatedAt", p."UpdatedAt";
             """;
         AddParameter(command, "$projectId", projectId);
+        AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -183,11 +187,13 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 ON m."ConversationId" = c."Id"
                AND m."Visibility" = $visibility
             WHERE c."ProjectId" = $projectId
+              AND c."Source" = $localSource
             GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt", c."TokenCount", c."LastUsageTokenCount"
             ORDER BY c."UpdatedAt" DESC;
             """;
         AddParameter(command, "$projectId", projectId);
         AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
+        AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
         var summaries = new List<ConversationSummary>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -225,10 +231,11 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 COALESCE(MAX(c."UpdatedAt"), p."UpdatedAt") AS "LastUpdatedAt",
                 COUNT(c."Id") AS "ConversationCount"
             FROM "Projects" p
-            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id"
+            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id" AND c."Source" = $localSource
             GROUP BY p."Id", p."Name", p."WorkDirectory", p."SortOrder", p."CreatedAt", p."UpdatedAt"
             ORDER BY p."SortOrder", "LastUpdatedAt" DESC, p."Id";
             """;
+        AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
         var workspaces = new List<WorkspaceSummary>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -264,8 +271,53 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
     }
 
     /// <inheritdoc />
+    public async Task<Conversation> GetOrCreateBySourceAsync(
+        long projectId,
+        ConversationSource source,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(projectId), "项目标识必须大于零。");
+        }
+
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+
+        // 先查找该项目下指定来源的最近会话
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source"
+            FROM "Conversations"
+            WHERE "ProjectId" = $projectId AND "Source" = $source
+            ORDER BY "UpdatedAt" DESC
+            LIMIT 1;
+            """;
+        AddParameter(command, "$projectId", projectId);
+        AddParameter(command, "$source", (int)source);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return ReadConversation(reader);
+        }
+
+        // 不存在则创建指定来源的会话
+        return await CreateForProjectIdAsync(projectId, source, cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<Conversation> CreateForProjectIdAsync(
         long projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await CreateForProjectIdAsync(projectId, ConversationSource.Local, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<Conversation> CreateForProjectIdAsync(
+        long projectId,
+        ConversationSource source,
         CancellationToken cancellationToken = default)
     {
         if (projectId <= 0)
@@ -283,7 +335,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             Title = CreateConversationTitle(workDirectory),
             WorkDirectory = workDirectory,
             CreatedAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
+            Source = source
         };
 
         await InsertConversationAsync(connection, conversation, cancellationToken);
@@ -300,7 +353,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source"
             FROM "Conversations"
             WHERE "Id" = $conversationId
             LIMIT 1;
@@ -511,7 +564,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source"
             FROM "Conversations"
             WHERE "ProjectId" = $projectId
             ORDER BY "UpdatedAt" DESC
@@ -540,7 +593,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             WorkDirectory = reader.GetString(5),
             TokenCount = reader.GetInt64(6),
             LastUsageTokenCount = reader.GetInt64(7),
-            LastInputTokenCount = reader.GetInt64(8)
+            LastInputTokenCount = reader.GetInt64(8),
+            Source = (ConversationSource)reader.GetInt32(9)
         };
     }
 
@@ -552,8 +606,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount")
-            VALUES ($id, $title, $createdAt, $updatedAt, $projectId, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount);
+            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source")
+            VALUES ($id, $title, $createdAt, $updatedAt, $projectId, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount, $source);
             """;
         AddParameter(command, "$id", conversation.Id);
         AddParameter(command, "$title", conversation.Title);
@@ -564,6 +618,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         AddParameter(command, "$tokenCount", conversation.TokenCount);
         AddParameter(command, "$lastUsageTokenCount", conversation.LastUsageTokenCount);
         AddParameter(command, "$lastInputTokenCount", conversation.LastInputTokenCount);
+        AddParameter(command, "$source", (int)conversation.Source);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

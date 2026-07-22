@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Conversations;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Gateway;
 using NarutoCode.Gateway.Bridge;
@@ -51,9 +52,10 @@ public sealed class GatewayHost
         await using var serviceProvider = services.BuildServiceProvider();
         await serviceProvider.BuildAsync();
 
-        // 6. 打开固定工作目录会话（存在则加载最近一条，不存在则创建首个）
+        // 6. 打开企业微信通道专属会话（Source=WeCom，不在 TUI/桌面端显示）
         var conversationService = serviceProvider.GetRequiredService<IConversationService>();
-        var workspaceResult = await conversationService.OpenWorkspaceAsync(gatewayConfig.Workspace, ct);
+        var workspaceResult = await conversationService.OpenWorkspaceBySourceAsync(
+            gatewayConfig.Workspace, ConversationSource.WeCom, ct);
         var sessionId = workspaceResult.History.SessionId;
         var logger = serviceProvider.GetRequiredService<ILogger<GatewayHost>>();
 
