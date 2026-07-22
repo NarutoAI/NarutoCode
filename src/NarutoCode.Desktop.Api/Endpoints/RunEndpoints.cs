@@ -58,7 +58,8 @@ internal static class RunEndpoints
                         return Results.BadRequest(new ApiErrorResponse("invalid_media_type", $"不支持的媒体类型：{att.MediaType}", string.Empty, null));
                     }
 
-                    attachments.Add(new AgentMessageAttachment(att.Path, att.MediaType));
+                    var imageData = await File.ReadAllBytesAsync(att.Path);
+                    attachments.Add(new AgentMessageAttachment(imageData, att.MediaType));
                 }
             }
 

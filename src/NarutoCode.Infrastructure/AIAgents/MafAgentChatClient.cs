@@ -346,7 +346,7 @@ public class MafAgentChatClient : IAgentChatClient
     /// </summary>
     /// <param name="message"></param>
     /// <returns></returns>
-    private static async Task<ChatMessage> CreateUserInputMessageWithAttachmentsAsync(AgentMessage message)
+    private static Task<ChatMessage> CreateUserInputMessageWithAttachmentsAsync(AgentMessage message)
     {
         var contents = new List<AIContent>();
         if (!string.IsNullOrWhiteSpace(message.Content))
@@ -356,13 +356,11 @@ public class MafAgentChatClient : IAgentChatClient
 
         foreach (var attachment in message.Attachments)
         {
-            await using (FileStream fileStream = new FileStream(attachment.FilePath, FileMode.Open, FileAccess.Read))
-            {
-                contents.Add(await DataContent.LoadFromAsync(fileStream));
-            }
+            // 附件以内存字节承载，直接构造 DataContent，无需文件路径
+            contents.Add(new DataContent(attachment.Data, attachment.MediaType));
         }
 
-        return new ChatMessage(ChatRole.User, contents);
+        return Task.FromResult(new ChatMessage(ChatRole.User, contents));
     }
 
     private ChatMessage CreateToolApprovalResponseMessage(AgentMessage message)

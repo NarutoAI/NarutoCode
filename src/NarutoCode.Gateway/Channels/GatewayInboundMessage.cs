@@ -11,6 +11,7 @@
 /// <param name="ReplyToId">回复时需回传的标识（如企业微信的 req_id）。</param>
 /// <param name="GroupId">群聊标识，单聊为空。</param>
 /// <param name="IsGroup">是否群聊消息。</param>
+/// <param name="Attachments">消息附件（如图片本地路径），无附件时为空数组。</param>
 public sealed record GatewayInboundMessage(
     string ChannelId,
     string SenderId,
@@ -19,4 +20,12 @@ public sealed record GatewayInboundMessage(
     string? MessageId,
     string? ReplyToId,
     string? GroupId,
-    bool IsGroup);
+    bool IsGroup,
+    IReadOnlyList<GatewayInboundAttachment> Attachments);
+
+/// <summary>
+/// 通道入站消息附件（如图片），以内存字节承载。
+/// </summary>
+/// <param name="Data">附件二进制数据。</param>
+/// <param name="MediaType">附件媒体类型（如 image/jpeg）。</param>
+public sealed record GatewayInboundAttachment(byte[] Data, string MediaType);

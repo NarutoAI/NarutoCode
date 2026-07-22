@@ -38,7 +38,12 @@ public sealed class GatewayMessageBridge
     {
         try
         {
-            var agentMessage = new AgentMessage(AgentMessageType.Content, inbound.Text);
+            // 将通道附件转换为 Agent 附件（图片等），直接传递内存字节
+            var attachments = inbound.Attachments
+                .Select(a => new AgentMessageAttachment(a.Data, a.MediaType))
+                .ToArray();
+
+            var agentMessage = new AgentMessage(AgentMessageType.Content, inbound.Text, attachments: attachments);
 
             // 群聊回复群，单聊回复发送者
             var recipientId = inbound.IsGroup && !string.IsNullOrEmpty(inbound.GroupId)

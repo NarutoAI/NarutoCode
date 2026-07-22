@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -226,7 +227,8 @@ public sealed class WeComChannel : IGatewayChannel
     }
 
     /// <summary>
-    /// 处理消息回调：提取文本 → 去重 → 构造入站消息 → 触发事件。
+    /// 处理消息回调：提取文本和图片 → 去重 → 构造入站消息 → 触发事件。
+    /// 支持纯文本、纯图片、mixed 混合消息（文字+图片）。
     /// </summary>
     private async Task HandleMsgCallbackAsync(JsonElement root, string? reqId, CancellationToken ct)
     {
@@ -240,15 +242,21 @@ public sealed class WeComChannel : IGatewayChannel
         var senderName = body.TryGetProperty("from", out var from2) ? GetString(from2, "name") : null;
         var text = ReadText(body);
 
+        // 提取并下载图片附件（支持纯图片消息和 mixed 混合消息中的图片项）
+        var attachments = await DownloadImagesAsync(body, ct);
+
         // 消息去重
         if (!string.IsNullOrWhiteSpace(msgId) && !_dedup.TryClaim(msgId!))
             return;
 
-        if (string.IsNullOrWhiteSpace(senderId) || string.IsNullOrWhiteSpace(text))
+        // 文本和图片都为空时跳过
+        if (string.IsNullOrWhiteSpace(senderId))
+            return;
+        if (string.IsNullOrWhiteSpace(text) && attachments.Count == 0)
             return;
 
-        // 截断超长消息
-        if (text!.Length > _config.MaxInboundChars)
+        // 截断超长文本
+        if (!string.IsNullOrWhiteSpace(text) && text!.Length > _config.MaxInboundChars)
             text = text[.._config.MaxInboundChars];
 
         var isGroup = string.Equals(chatType, "group", StringComparison.OrdinalIgnoreCase);
@@ -266,11 +274,12 @@ public sealed class WeComChannel : IGatewayChannel
             ChannelId: ChannelId,
             SenderId: senderId!,
             SenderName: senderName,
-            Text: text!,
+            Text: text ?? string.Empty,
             MessageId: msgId,
             ReplyToId: reqId,
             GroupId: isGroup ? chatId : null,
-            IsGroup: isGroup);
+            IsGroup: isGroup,
+            Attachments: attachments);
 
         if (OnMessageReceived is not null)
             await OnMessageReceived(inbound, ct);
@@ -312,6 +321,182 @@ public sealed class WeComChannel : IGatewayChannel
 
         return null;
     }
+
+    // ════════════════════════════ 图片下载与解密 ════════════════════════════
+
+    /// <summary>
+    /// 从消息体中提取所有图片 URL 与 aeskey，并下载解密到本地临时目录。
+    /// 企业微信 AI Bot 的 mixed 图片项提供的是 5 分钟有效的加密文件 URL，不能按 media_id 下载。
+    /// </summary>
+    private async Task<IReadOnlyList<GatewayInboundAttachment>> DownloadImagesAsync(
+        JsonElement body, CancellationToken ct)
+    {
+        var images = new List<WeComImagePayload>();
+
+        // 纯图片消息：body.image.url / body.image.aeskey
+        if (body.TryGetProperty("image", out var img) && img.ValueKind == JsonValueKind.Object)
+        {
+            TryAddImagePayload(images, img);
+        }
+
+        // mixed 混合消息：body.mixed.msg_item[].image.url / aeskey
+        if (body.TryGetProperty("mixed", out var mixedProp) &&
+            mixedProp.ValueKind == JsonValueKind.Object &&
+            mixedProp.TryGetProperty("msg_item", out var items) &&
+            items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                if (GetString(item, "msgtype") == "image" &&
+                    item.TryGetProperty("image", out var itemImage) &&
+                    itemImage.ValueKind == JsonValueKind.Object)
+                {
+                    TryAddImagePayload(images, itemImage);
+                }
+            }
+        }
+
+        if (images.Count == 0)
+            return [];
+
+        var attachments = new List<GatewayInboundAttachment>(images.Count);
+        foreach (var image in images)
+        {
+            try
+            {
+                var attachment = await DownloadAndDecryptImageAsync(image, ct);
+                if (attachment is not null)
+                    attachments.Add(attachment);
+            }
+            catch (Exception ex)
+            {
+                Log.WeComImageDownloadFailed(_logger, image.Url, ex);
+            }
+        }
+
+        return attachments;
+    }
+
+    /// <summary>
+    /// 尝试从企业微信图片节点读取 url 与 aeskey。
+    /// </summary>
+    private static void TryAddImagePayload(List<WeComImagePayload> images, JsonElement image)
+    {
+        var url = GetString(image, "url");
+        var aesKey = GetString(image, "aeskey");
+        if (!string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(aesKey))
+            images.Add(new WeComImagePayload(url!, aesKey!));
+    }
+
+    /// <summary>
+    /// 下载企业微信临时图片 URL，并用回调中的 aeskey 做 AES-256-CBC 解密。
+    /// 解密后的图片字节直接以内存方式返回，不落盘。
+    /// </summary>
+    private async Task<GatewayInboundAttachment?> DownloadAndDecryptImageAsync(
+        WeComImagePayload image, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, image.Url);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var encryptedBytes = await response.Content.ReadAsByteArrayAsync(ct);
+        if (encryptedBytes.Length == 0)
+            return null;
+
+        var decryptedBytes = DecryptWeComFile(encryptedBytes, image.AesKey);
+        var (contentType, _) = DetectImageType(decryptedBytes);
+
+        return new GatewayInboundAttachment(decryptedBytes, contentType);
+    }
+
+    /// <summary>
+    /// 企业微信文件解密：AESKey 为 Base64 编码的 32 字节密钥，IV 取密钥前 16 字节。
+    /// 加密数据使用 AES-256-CBC，PKCS#7 padding 最大可能为 32 字节。
+    /// </summary>
+    private static byte[] DecryptWeComFile(byte[] encryptedBytes, string aesKey)
+    {
+        var key = DecodeBase64WithPadding(aesKey);
+        if (key.Length != 32)
+            throw new InvalidOperationException($"企业微信图片 aeskey 解码后长度无效：{key.Length}。");
+
+        var iv = key[..16];
+
+        // 参考官方 SDK：如果密文长度不是 AES block size 的倍数，补 0 后再解密。
+        if (encryptedBytes.Length % 16 != 0)
+        {
+            var padded = new byte[encryptedBytes.Length + (16 - encryptedBytes.Length % 16)];
+            Buffer.BlockCopy(encryptedBytes, 0, padded, 0, encryptedBytes.Length);
+            encryptedBytes = padded;
+        }
+
+        using var aes = Aes.Create();
+        aes.Key = key;
+        aes.IV = iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.None;
+
+        using var decryptor = aes.CreateDecryptor();
+        var decrypted = decryptor.TransformFinalBlock(encryptedBytes, 0, encryptedBytes.Length);
+        return RemovePkcs7Padding(decrypted);
+    }
+
+    /// <summary>
+    /// Base64 解码企业微信 aeskey，兼容缺少 '=' padding 的情况。
+    /// </summary>
+    private static byte[] DecodeBase64WithPadding(string value)
+    {
+        var padding = value.Length % 4;
+        if (padding > 0)
+            value += new string('=', 4 - padding);
+        return Convert.FromBase64String(value);
+    }
+
+    /// <summary>
+    /// 手动移除 PKCS#7 padding。企业微信文件 padding 可到 32 字节。
+    /// </summary>
+    private static byte[] RemovePkcs7Padding(byte[] bytes)
+    {
+        if (bytes.Length == 0)
+            throw new InvalidOperationException("企业微信图片解密后内容为空。");
+
+        var padLen = bytes[^1];
+        if (padLen is < 1 or > 32 || padLen > bytes.Length)
+            throw new InvalidOperationException($"企业微信图片 padding 无效：{padLen}。");
+
+        for (var i = bytes.Length - padLen; i < bytes.Length; i++)
+        {
+            if (bytes[i] != padLen)
+                throw new InvalidOperationException("企业微信图片 padding 字节不一致。");
+        }
+
+        var result = new byte[bytes.Length - padLen];
+        Buffer.BlockCopy(bytes, 0, result, 0, result.Length);
+        return result;
+    }
+
+    /// <summary>
+    /// 根据图片文件头判断媒体类型和扩展名。
+    /// </summary>
+    private static (string ContentType, string Extension) DetectImageType(byte[] bytes)
+    {
+        if (bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+            return ("image/png", ".png");
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+            return ("image/jpeg", ".jpg");
+        if (bytes.Length >= 6 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46)
+            return ("image/gif", ".gif");
+        if (bytes.Length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+            bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50)
+            return ("image/webp", ".webp");
+
+        return ("image/jpeg", ".jpg");
+    }
+
+    /// <summary>
+    /// 企业微信图片下载载荷。
+    /// </summary>
+    private sealed record WeComImagePayload(string Url, string AesKey);
 
     // ════════════════════════════ 发送回复 ════════════════════════════
 

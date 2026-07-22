@@ -485,7 +485,8 @@ internal sealed class TuiChatApplication(
                 return false;
             }
 
-            attachments.Add(new AgentMessageAttachment(imagePath, mediaType));
+            var imageData = File.ReadAllBytes(imagePath);
+            attachments.Add(new AgentMessageAttachment(imageData, mediaType));
         }
 
         if (attachments.Count == 0)
@@ -546,7 +547,7 @@ internal sealed class TuiChatApplication(
         string content,
         IReadOnlyList<AgentMessageAttachment> attachments)
     {
-        var imageLines = attachments.Select((attachment, index) => $"image[{index + 1}]: {attachment.FilePath}");
+        var imageLines = attachments.Select((attachment, index) => $"image[{index + 1}]: {attachment.MediaType} ({attachment.Data.Length} bytes)");
         return string.Join(Environment.NewLine, imageLines) + Environment.NewLine + content;
     }
 

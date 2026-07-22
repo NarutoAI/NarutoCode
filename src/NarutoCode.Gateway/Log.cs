@@ -49,6 +49,9 @@ internal static partial class Log
     [LoggerMessage(1023, LogLevel.Error, "企业微信发送消息失败 recipientId={RecipientId}。")]
     public static partial void WeComSendFailed(ILogger logger, string recipientId, Exception exception);
 
+    [LoggerMessage(1024, LogLevel.Warning, "企业微信图片下载或解密失败 url={Url}。")]
+    public static partial void WeComImageDownloadFailed(ILogger logger, string url, Exception exception);
+
     // ── 消息桥接 ──
 
     [LoggerMessage(1030, LogLevel.Error, "桥接消息处理失败 channel={ChannelId} sender={SenderId}。")]
