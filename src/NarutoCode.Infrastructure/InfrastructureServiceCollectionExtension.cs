@@ -13,6 +13,7 @@ using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.AIAgents.Mcp;
+using NarutoCode.Infrastructure.AIAgents.SubAgents;
 using NarutoCode.Infrastructure.ChatClients;
 using NarutoCode.Infrastructure.Stores;
 
@@ -55,6 +56,12 @@ public static class InfrastructureServiceCollectionExtension
 
             services.AddSingleton<IAgentChatClient, MafAgentChatClient>();
             services.AddSingleton<IAgentFactory, AgentFactory>();
+
+            // 子 Agent 编排：加载配置注册表并注册工作目录执行锁
+            var subAgentRegistry = new SubAgentRegistry(
+                Path.Combine(ProjectConstant.AppDirectory, ProjectConstant.SubAgentsConfigurationFileName));
+            await subAgentRegistry.InitializeAsync();
+            services.AddSingleton(subAgentRegistry);
             services.AddSingleton<McpClientManager>();
             services.AddSingleton<ConversationRepositoryCoordinator>();
             services.AddSingleton<IChatHistoryPersistenceHandler, ConversationChatHistoryPersistenceHandler>();

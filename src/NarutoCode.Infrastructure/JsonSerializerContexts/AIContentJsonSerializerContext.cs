@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
+using NarutoCode.Infrastructure.AIAgents.SubAgents;
 
 namespace NarutoCode.Infrastructure.JsonSerializerContexts;
 
@@ -49,6 +50,9 @@ namespace NarutoCode.Infrastructure.JsonSerializerContexts;
 [JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(decimal))]
 [JsonSerializable(typeof(ToolApprovalRequestContent))]
+[JsonSerializable(typeof(DelegateAgentsRequest))]
+[JsonSerializable(typeof(DelegateAgentTaskRequest))]
+[JsonSerializable(typeof(DelegationExecutionMode))]
 [JsonSerializable(typeof(TaskToolResult))]
 [JsonSerializable(typeof(TaskCreateToolResult))]
 [JsonSerializable(typeof(TaskGetToolResult))]

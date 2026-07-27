@@ -13,6 +13,7 @@ using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.AIAgents.LoopEvaluators;
 using NarutoCode.Infrastructure.AIAgents.Mcp;
+using NarutoCode.Infrastructure.AIAgents.SubAgents;
 using NarutoCode.Infrastructure.AIAgents.Skills;
 
 namespace NarutoCode.Infrastructure.AIAgents;
@@ -20,19 +21,42 @@ namespace NarutoCode.Infrastructure.AIAgents;
 /// <summary>
 /// Agent 工厂，按规范化工作目录维护会话级 Agent、Session 与持久 Shell 运行时。
 /// </summary>
-public sealed class AgentFactory(
-    IWorkspaceContextAccessor workspaceContextAccessor,
-    IChatHistoryPersistenceHandler chatHistoryPersistenceHandler,
-    ILoggerFactory loggerFactory,
-    CompactionStrategyCoordinator compactionStrategyCoordinator,
-    DynamicChatClient dynamicChatClient,
-    McpClientManager mcpClientManager) : IAgentFactory, IAsyncDisposable
+public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
 {
     private static readonly TimeSpan IdlePoolTimeout = TimeSpan.FromMinutes(30);
 
+    private readonly IWorkspaceContextAccessor _workspaceContextAccessor;
+    private readonly IChatHistoryPersistenceHandler _chatHistoryPersistenceHandler;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly CompactionStrategyCoordinator _compactionStrategyCoordinator;
+    private readonly DynamicChatClient _dynamicChatClient;
+    private readonly McpClientManager _mcpClientManager;
+    private readonly SubAgentRegistry _subAgentRegistry;
     private readonly ConcurrentDictionary<string, WorkspaceAgentPool> _workspacePools = new(StringComparer.Ordinal);
-    private readonly ILogger<AgentFactory> _logger = loggerFactory.CreateLogger<AgentFactory>();
+    private readonly ILogger<AgentFactory> _logger;
     private int _disposed;
+
+    /// <summary>
+    /// 创建 Agent 工厂及其工作目录限定子 Agent 编排能力。
+    /// </summary>
+    public AgentFactory(
+        IWorkspaceContextAccessor workspaceContextAccessor,
+        IChatHistoryPersistenceHandler chatHistoryPersistenceHandler,
+        ILoggerFactory loggerFactory,
+        CompactionStrategyCoordinator compactionStrategyCoordinator,
+        DynamicChatClient dynamicChatClient,
+        McpClientManager mcpClientManager,
+        SubAgentRegistry subAgentRegistry)
+    {
+        this._workspaceContextAccessor = workspaceContextAccessor;
+        this._chatHistoryPersistenceHandler = chatHistoryPersistenceHandler;
+        this._loggerFactory = loggerFactory;
+        this._compactionStrategyCoordinator = compactionStrategyCoordinator;
+        this._dynamicChatClient = dynamicChatClient;
+        this._mcpClientManager = mcpClientManager;
+        this._subAgentRegistry = subAgentRegistry;
+        _logger = loggerFactory.CreateLogger<AgentFactory>();
+    }
     
 
     /// <inheritdoc />
@@ -43,7 +67,7 @@ public sealed class AgentFactory(
         ThrowIfDisposed();
         await EvictIdlePoolsAsync(cancellationToken);
 
-        var workingDirectory = WorkspacePath.Normalize(workspaceContextAccessor.Current.WorkingDirectory);
+        var workingDirectory = WorkspacePath.Normalize(_workspaceContextAccessor.Current.WorkingDirectory);
         while (true)
         {
             var pool = _workspacePools.GetOrAdd(workingDirectory, CreateWorkspacePool);
@@ -68,7 +92,7 @@ public sealed class AgentFactory(
             return;
         }
 
-        var workingDirectory = WorkspacePath.Normalize(workspaceContextAccessor.Current.WorkingDirectory);
+        var workingDirectory = WorkspacePath.Normalize(_workspaceContextAccessor.Current.WorkingDirectory);
         if (_workspacePools.TryGetValue(workingDirectory, out var pool))
         {
             pool.InvalidateConversation(sessionId);
@@ -104,12 +128,12 @@ public sealed class AgentFactory(
         return new WorkspaceAgentPool(
             workingDirectory,
             () => CreateConversationRuntime(workingDirectory),
-            loggerFactory.CreateLogger<WorkspaceAgentPool>());
+            _loggerFactory.CreateLogger<WorkspaceAgentPool>());
     }
 
     private ConversationAgentRuntime CreateConversationRuntime(string workingDirectory)
     {
-        var persistentShell = ShellExecutorFactory.Create();
+        var persistentShell = ShellExecutorFactory.Create(workingDirectory);
         try
         {
             var runtime = new ConversationAgentRuntime(CreateAgent(workingDirectory, persistentShell), persistentShell);
@@ -125,18 +149,18 @@ public sealed class AgentFactory(
     }
 
 #pragma warning disable MAAI001
-    private AIAgent CreateAgent(string workingDirectory, LocalShellExecutor persistentShell)
+    private AIAgent CreateAgent(string workingDirectory, ShellExecutor persistentShell, bool persistHistory = true)
     {
         var workspaceContext = new WorkspaceContext(workingDirectory);
         var fixedWorkspaceAccessor = new FixedWorkspaceContextAccessor(workspaceContext);
         var skillsProvider = new AgentSkillsProvider(
             [ProjectConstant.SkillsDirectory],
             scriptRunner: SkillSubprocessScriptRunner.RunAsync,
-            loggerFactory: loggerFactory);
+            loggerFactory: _loggerFactory);
 
         var persistenceChatHistoryProvider = new PersistenceChatHistoryProvider(
-            chatHistoryPersistenceHandler,
-            compactionStrategyCoordinator);
+            _chatHistoryPersistenceHandler,
+            _compactionStrategyCoordinator);
         var fileStore = new FileSystemAgentFileStore(workingDirectory);
         var fileAccessProvider = new FileAccessProvider(
             fileStore,
@@ -156,7 +180,7 @@ public sealed class AgentFactory(
         var memoryPath = Path.Combine(workingDirectory, ProjectConstant.ConfigurationDirectory, "memory");
         var agentMd = ReadAgentsMd(workingDirectory);
 
-        return dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
+        return _dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
         {
             AgentModeProviderOptions = new AgentModeProviderOptions
             {
@@ -198,7 +222,7 @@ public sealed class AgentFactory(
                 """,
             Name = "NarutoCode",
             DisableFileMemory = true,
-            ChatHistoryProvider = persistenceChatHistoryProvider,
+            ChatHistoryProvider = persistHistory ? persistenceChatHistoryProvider : new InMemoryChatHistoryProvider(),
             ChatOptions = new ChatOptions
             {
                 Reasoning = new() { Output = ReasoningOutput.Summary }
@@ -209,7 +233,7 @@ public sealed class AgentFactory(
             [
                 skillsProvider,
                 ToolContinuationSkippingAiContextProvider.Wrap(new TaskProvider()),
-                new CodeReviewAIContextProvider(dynamicChatClient, [fileAccessProvider]),
+                new CodeReviewAIContextProvider(_dynamicChatClient, [fileAccessProvider]),
                 new FSTollsAiContextProvider(fixedWorkspaceAccessor),
                 fileAccessProvider,
                 new SvgRenderProvider(workingDirectory),
@@ -227,7 +251,8 @@ public sealed class AgentFactory(
                             """
                     })),
                 ToolContinuationSkippingAiContextProvider.Wrap(new TodoProvider()),
-                new McpToolsAIContextProvider(mcpClientManager),
+                new McpToolsAIContextProvider(_mcpClientManager),
+                new SubAgentAiContextProvider(workingDirectory, _subAgentRegistry, (dir, shell) => CreateAgent(dir, shell, persistHistory: false)),
                 new CollectApprovalToolAiContextProvider()
             ],
             DisableTodoProvider = true,
@@ -242,7 +267,7 @@ public sealed class AgentFactory(
                 new TodoCompletionLoopEvaluator(new TodoCompletionLoopEvaluatorOptions { Modes = ["execute"] }),
                 new TaskLoopEvaluator()
             ]
-        }, loggerFactory);
+        }, _loggerFactory);
     }
 #pragma warning restore MAAI001
 
