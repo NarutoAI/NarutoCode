@@ -125,10 +125,27 @@ public interface IConversationService
     /// </summary>
     /// <param name="workDirectory">工作目录。</param>
     /// <param name="source">会话来源类型。</param>
+    /// <param name="sourceId">会话来源标识，用于区分同一来源类型下的不同通道会话。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>打开后的会话历史及是否新建标志。</returns>
     Task<OpenWorkspaceResult> OpenWorkspaceBySourceAsync(
         string workDirectory,
         ConversationSource source,
+        string sourceId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按工作目录、来源类型和来源标识获取或创建会话，仅返回会话标识。
+    /// 用于网关通道按来源（如企业微信的 chatId/senderId）动态绑定独立会话，不加载完整历史。
+    /// </summary>
+    /// <param name="workDirectory">工作目录。</param>
+    /// <param name="source">会话来源类型。</param>
+    /// <param name="sourceId">会话来源标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>匹配的会话标识。</returns>
+    Task<ConversationSessionId> GetOrCreateSessionIdBySourceAsync(
+        string workDirectory,
+        ConversationSource source,
+        string sourceId,
         CancellationToken cancellationToken = default);
 }

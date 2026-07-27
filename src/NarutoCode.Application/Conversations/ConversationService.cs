@@ -144,19 +144,34 @@ public class ConversationService(
     public async Task<OpenWorkspaceResult> OpenWorkspaceBySourceAsync(
         string workDirectory,
         ConversationSource source,
+        string sourceId,
         CancellationToken cancellationToken = default)
     {
         // 复用项目定位逻辑，确保网关和本地共享同一个项目记录
         var workspace = await GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
 
-        // 查询该项目下指定来源的最近会话
+        // 查询该项目下指定来源类型与来源标识的最近会话
         var conversation = await conversationRepository.GetOrCreateBySourceAsync(
-            workspace.Id, source, cancellationToken);
+            workspace.Id, source, sourceId, cancellationToken);
 
         var history = await LoadConversationHistoryAsync(
             new ConversationSessionId(conversation.Id), cancellationToken);
 
         return new OpenWorkspaceResult(history, false);
+    }
+
+    /// <inheritdoc />
+    public async Task<ConversationSessionId> GetOrCreateSessionIdBySourceAsync(
+        string workDirectory,
+        ConversationSource source,
+        string sourceId,
+        CancellationToken cancellationToken = default)
+    {
+        // 定位项目后按来源标识获取或创建会话，仅返回会话标识，不加载历史
+        var workspace = await GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
+        var conversation = await conversationRepository.GetOrCreateBySourceAsync(
+            workspace.Id, source, sourceId, cancellationToken);
+        return new ConversationSessionId(conversation.Id);
     }
 
     private static ConversationHistoryMessage ToHistoryMessage(Message message)

@@ -63,4 +63,11 @@ public class Conversation
     /// 通道会话不在 TUI 和桌面端显示。
     /// </summary>
     public ConversationSource Source { get; set; } = ConversationSource.Local;
+
+    /// <summary>
+    /// 会话来源标识，用于区分同一来源类型下的不同通道会话。
+    /// 企业微信场景下为 aibotid_senderId（单聊）或 chatId（群聊）。
+    /// 本地会话为空字符串。
+    /// </summary>
+    public string SourceId { get; set; } = string.Empty;
 }

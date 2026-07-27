@@ -274,6 +274,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
     public async Task<Conversation> GetOrCreateBySourceAsync(
         long projectId,
         ConversationSource source,
+        string sourceId,
         CancellationToken cancellationToken = default)
     {
         if (projectId <= 0)
@@ -283,18 +284,19 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
 
-        // 先查找该项目下指定来源的最近会话
+        // 先查找该项目下指定来源类型与来源标识的最近会话
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId"
             FROM "Conversations"
-            WHERE "ProjectId" = $projectId AND "Source" = $source
+            WHERE "ProjectId" = $projectId AND "Source" = $source AND "SourceId" = $sourceId
             ORDER BY "UpdatedAt" DESC
             LIMIT 1;
             """;
         AddParameter(command, "$projectId", projectId);
         AddParameter(command, "$source", (int)source);
+        AddParameter(command, "$sourceId", sourceId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (await reader.ReadAsync(cancellationToken))
@@ -302,8 +304,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             return ReadConversation(reader);
         }
 
-        // 不存在则创建指定来源的会话
-        return await CreateForProjectIdAsync(projectId, source, cancellationToken);
+        // 不存在则创建指定来源与来源标识的会话
+        return await CreateForProjectIdAsync(projectId, source, sourceId, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -311,13 +313,14 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         long projectId,
         CancellationToken cancellationToken = default)
     {
-        return await CreateForProjectIdAsync(projectId, ConversationSource.Local, cancellationToken);
+        return await CreateForProjectIdAsync(projectId, ConversationSource.Local, string.Empty, cancellationToken);
     }
 
     /// <inheritdoc />
     public async Task<Conversation> CreateForProjectIdAsync(
         long projectId,
         ConversationSource source,
+        string sourceId,
         CancellationToken cancellationToken = default)
     {
         if (projectId <= 0)
@@ -336,7 +339,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             WorkDirectory = workDirectory,
             CreatedAt = now,
             UpdatedAt = now,
-            Source = source
+            Source = source,
+            SourceId = sourceId
         };
 
         await InsertConversationAsync(connection, conversation, cancellationToken);
@@ -353,7 +357,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId"
             FROM "Conversations"
             WHERE "Id" = $conversationId
             LIMIT 1;
@@ -564,7 +568,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source"
+            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId"
             FROM "Conversations"
             WHERE "ProjectId" = $projectId
             ORDER BY "UpdatedAt" DESC
@@ -594,7 +598,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             TokenCount = reader.GetInt64(6),
             LastUsageTokenCount = reader.GetInt64(7),
             LastInputTokenCount = reader.GetInt64(8),
-            Source = (ConversationSource)reader.GetInt32(9)
+            Source = (ConversationSource)reader.GetInt32(9),
+            SourceId = reader.GetString(10)
         };
     }
 
@@ -606,8 +611,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source")
-            VALUES ($id, $title, $createdAt, $updatedAt, $projectId, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount, $source);
+            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId")
+            VALUES ($id, $title, $createdAt, $updatedAt, $projectId, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount, $source, $sourceId);
             """;
         AddParameter(command, "$id", conversation.Id);
         AddParameter(command, "$title", conversation.Title);
@@ -619,6 +624,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         AddParameter(command, "$lastUsageTokenCount", conversation.LastUsageTokenCount);
         AddParameter(command, "$lastInputTokenCount", conversation.LastInputTokenCount);
         AddParameter(command, "$source", (int)conversation.Source);
+        AddParameter(command, "$sourceId", conversation.SourceId);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

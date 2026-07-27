@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Conversations;
@@ -42,9 +42,8 @@ public sealed class GatewayHost
         var started = 0;
         foreach (var binding in config.WeComBots.Where(x => x.Enabled))
         {
-            var workspace = await conversations.OpenWorkspaceBySourceAsync(binding.Workspace, ConversationSource.WeCom, ct);
             var channel = ActivatorUtilities.CreateInstance<WeComChannel>(provider, binding);
-            channel.OnMessageReceived += (message, token) => HandleAsync(channel, binding, workspace.History.SessionId, message, token);
+            channel.OnMessageReceived += (message, token) => HandleAsync(channel, binding, message, token);
             await channel.StartAsync(ct);
             Log.ChannelStarted(logger, channel.ChannelId);
             started++;
@@ -54,9 +53,13 @@ public sealed class GatewayHost
         await Task.Delay(Timeout.Infinite, ct);
         return;
 
-        async ValueTask HandleAsync(WeComChannel channel, GatewayBotBinding binding, Domain.Messages.ConversationSessionId sessionId, Channels.GatewayInboundMessage message, CancellationToken token)
+        // 每条入站消息按来源标识动态获取或创建独立会话，实现不同群聊/单聊各自隔离
+        async ValueTask HandleAsync(WeComChannel channel, GatewayBotBinding binding, Channels.GatewayInboundMessage message, CancellationToken token)
         {
             using var scope = workspaceAccessor.Push(binding.Workspace);
+            // 按消息来源标识获取或创建会话，不同 sourceId 对应不同会话
+            var sessionId = await conversations.GetOrCreateSessionIdBySourceAsync(
+                binding.Workspace, ConversationSource.WeCom, message.SourceId ?? string.Empty, token);
             await bridge.HandleAsync(channel, message, sessionId, token);
         }
     }

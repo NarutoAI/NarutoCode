@@ -72,11 +72,13 @@ public interface IConversationRepository
     /// </summary>
     /// <param name="projectId">项目主键。</param>
     /// <param name="source">会话来源类型。</param>
+    /// <param name="sourceId">会话来源标识，用于区分同一来源类型下的不同通道会话（如不同群聊/单聊）。</param>
     /// <param name="cancellationToken">取消令牌。</param>
-    /// <returns>匹配来源类型的会话实体。</returns>
+    /// <returns>匹配来源类型与来源标识的会话实体。</returns>
     Task<Conversation> GetOrCreateBySourceAsync(
         long projectId,
         ConversationSource source,
+        string sourceId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -94,11 +96,13 @@ public interface IConversationRepository
     /// </summary>
     /// <param name="projectId">项目主键。</param>
     /// <param name="source">会话来源类型。</param>
+    /// <param name="sourceId">会话来源标识，本地会话为空字符串。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>新创建的会话实体。</returns>
     Task<Conversation> CreateForProjectIdAsync(
         long projectId,
         ConversationSource source,
+        string sourceId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

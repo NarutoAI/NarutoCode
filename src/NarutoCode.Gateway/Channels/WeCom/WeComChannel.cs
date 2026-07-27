@@ -235,13 +235,15 @@ public sealed class WeComChannel : IGatewayChannel
         if (!root.TryGetProperty("body", out var body))
             return;
 
+        var aibotid = GetString(body, "aibotid");
         var msgId = GetString(body, "msgid");
         var chatId = GetString(body, "chatid");
         var chatType = GetString(body, "chattype");
         var senderId = body.TryGetProperty("from", out var from) ? GetString(from, "userid") : null;
         var senderName = body.TryGetProperty("from", out var from2) ? GetString(from2, "name") : null;
         var text = ReadText(body);
-
+        //定义来源的id，用于绑定我们的会话id
+        var sourceId=string.IsNullOrWhiteSpace(chatId)?$"{aibotid}_{senderId}":chatId ;
         // 提取并下载当前消息的图片附件
         var attachments = new List<GatewayInboundAttachment>();
         attachments.AddRange(await DownloadImagesAsync(body, ct));
@@ -298,6 +300,7 @@ public sealed class WeComChannel : IGatewayChannel
             ReplyToId: reqId,
             GroupId: isGroup ? chatId : null,
             IsGroup: isGroup,
+            SourceId: sourceId,
             Attachments: attachments);
 
         if (OnMessageReceived is not null)

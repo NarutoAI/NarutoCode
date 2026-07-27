@@ -21,6 +21,7 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
         await EnsureConversationLastInputTokenCountColumnAsync(connection, cancellationToken);
         await EnsureConversationProjectIdColumnAsync(connection, cancellationToken);
         await EnsureConversationSourceColumnAsync(connection, cancellationToken);
+        await EnsureConversationSourceIdColumnAsync(connection, cancellationToken);
         await EnsureMessageVisibilityColumnAsync(connection, cancellationToken);
         await NormalizeConversationWorkDirectoriesAsync(connection, cancellationToken);
         await BackfillProjectsFromConversationsAsync(connection, cancellationToken);
@@ -59,6 +60,7 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
                 "LastUsageTokenCount" INTEGER NOT NULL DEFAULT 0,
                 "LastInputTokenCount" INTEGER NOT NULL DEFAULT 0,
                 "Source" INTEGER NOT NULL DEFAULT 0,
+                "SourceId" TEXT NOT NULL DEFAULT '',
                 CONSTRAINT "FK_Conversations_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE RESTRICT
             );
             """,
@@ -93,6 +95,7 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_WorkDirectory\" ON \"Conversations\" (\"WorkDirectory\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_ProjectId_UpdatedAt\" ON \"Conversations\" (\"ProjectId\", \"UpdatedAt\" DESC);",
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_ProjectId_Source_UpdatedAt\" ON \"Conversations\" (\"ProjectId\", \"Source\", \"UpdatedAt\" DESC);",
+            "CREATE INDEX IF NOT EXISTS \"IX_Conversations_ProjectId_Source_SourceId_UpdatedAt\" ON \"Conversations\" (\"ProjectId\", \"Source\", \"SourceId\", \"UpdatedAt\" DESC);",
             "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId\" ON \"Messages\" (\"ConversationId\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId_CreatedAt\" ON \"Messages\" (\"ConversationId\", \"CreatedAt\");",
             "CREATE INDEX IF NOT EXISTS \"IX_ConversationRuntimeMessages_ConversationId\" ON \"ConversationRuntimeMessages\" (\"ConversationId\");",
@@ -240,6 +243,37 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
         await using var alterCommand = connection.CreateCommand();
         alterCommand.CommandText = "ALTER TABLE \"Conversations\" ADD COLUMN \"Source\" INTEGER NOT NULL DEFAULT 0;";
         await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// 确保旧版本本地数据库包含会话来源标识字段（SourceId）。
+    /// </summary>
+    private static async Task EnsureConversationSourceIdColumnAsync(
+        DbConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using (var checkCommand = connection.CreateCommand())
+        {
+            checkCommand.CommandText = "PRAGMA table_info('Conversations');";
+            await using var reader = await checkCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), "SourceId", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+        }
+
+        // 默认值空字符串，存量会话（含 Local 与 Channel）SourceId 统一为空
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE \"Conversations\" ADD COLUMN \"SourceId\" TEXT NOT NULL DEFAULT '';";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        // 为存量与新数据创建按来源标识查询的复合索引
+        await using var indexCommand = connection.CreateCommand();
+        indexCommand.CommandText = "CREATE INDEX IF NOT EXISTS \"IX_Conversations_ProjectId_Source_SourceId_UpdatedAt\" ON \"Conversations\" (\"ProjectId\", \"Source\", \"SourceId\", \"UpdatedAt\" DESC);";
+        await indexCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>
