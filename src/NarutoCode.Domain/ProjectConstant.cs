@@ -1,4 +1,4 @@
-namespace NarutoCode.Domain;
+﻿namespace NarutoCode.Domain;
 
 public class ProjectConstant
 {
@@ -26,6 +26,11 @@ public class ProjectConstant
     /// 运行时设置文件名称。
     /// </summary>
     public const string SettingsFileName = "settings.json";
+
+    /// <summary>
+    /// 工作目录子 Agent 编排配置文件名称。
+    /// </summary>
+    public const string SubAgentsConfigurationFileName = "subagents.json";
     
     /// <summary>
     /// 
