@@ -55,6 +55,13 @@ public sealed class GatewayMessageBridge
             var responseBuilder = new StringBuilder();
             var streamStarted = false;
 
+            // ── 流式推送节流 ──
+            // 企业微信 aibot_respond_msg 对同一 req_id 的流式更新有乐观版本控制，
+            // 帧发送过密会触发 errcode=6000（data version conflict, please retry later）。
+            // 限制中间帧最小间隔 300ms，大幅降低版本冲突概率。
+            const int minIntervalMs = 300;
+            var lastSendTime = DateTimeOffset.MinValue;
+
             // ── 流式推送循环 ──
             // 企业微信流式协议（aibot_respond_msg / msgtype=stream）的关键规则：
             // 每次帧的 stream.content 必须携带「当前完整内容」，服务端用它「全量替换」整条消息展示，
@@ -79,15 +86,27 @@ public sealed class GatewayMessageBridge
                 responseBuilder.Append(response.Content);
                 streamStarted = true;
 
+                // 节流：距上次推送不足最小间隔时跳过本帧，内容已累计到 responseBuilder，
+                // 下一帧（或完成帧）会携带全量内容覆盖，不影响最终展示效果
+                var now = DateTimeOffset.UtcNow;
+                if ((now - lastSendTime).TotalMilliseconds < minIntervalMs)
+                    continue;
+
                 // 推送当前完整内容，finish=false 表示流尚未结束
                 await channel.SendAsync(
                     new GatewayOutboundMessage(recipientId, streamId, responseBuilder.ToString(), IsCompleted: false),
                     ct);
+                lastSendTime = DateTimeOffset.UtcNow;
             }
 
             // Agent 输出结束后发送完成帧，finish=true 通知企业微信结束本次流式消息
             if (streamStarted)
             {
+                // 完成帧前确保与上一帧有最小间隔，避免企业微信版本冲突 (errcode=6000)
+                var elapsed = (DateTimeOffset.UtcNow - lastSendTime).TotalMilliseconds;
+                if (elapsed < minIntervalMs)
+                    await Task.Delay((int)(minIntervalMs - elapsed), ct);
+
                 await channel.SendAsync(
                     new GatewayOutboundMessage(recipientId, streamId, responseBuilder.ToString(), IsCompleted: true),
                     ct);

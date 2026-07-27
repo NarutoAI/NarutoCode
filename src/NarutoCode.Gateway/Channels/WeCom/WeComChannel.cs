@@ -22,7 +22,7 @@ public sealed class WeComChannel : IGatewayChannel
     private const string ApiBase = "https://qyapi.weixin.qq.com";
     private const int HeartbeatMs = 30_000;
 
-    private readonly WeComConfiguration _config;
+    private readonly GatewayBotBinding _config;
     private readonly WeComMessageDedup _dedup = new();
     private readonly ILogger<WeComChannel> _logger;
     private readonly HttpClient _http = new();
@@ -42,13 +42,13 @@ public sealed class WeComChannel : IGatewayChannel
     private string? _accessToken;
     private DateTimeOffset _tokenExpiry = DateTimeOffset.MinValue;
 
-    public string ChannelId => "wecom";
+    public string ChannelId => "wecom:" + _config.Id;
 
     public event Func<GatewayInboundMessage, CancellationToken, ValueTask>? OnMessageReceived;
 
-    public WeComChannel(GatewayConfiguration gatewayConfig, ILogger<WeComChannel> logger)
+    public WeComChannel(GatewayBotBinding binding, ILogger<WeComChannel> logger)
     {
-        _config = gatewayConfig.WeCom;
+        _config = binding;
         _logger = logger;
     }
 
@@ -585,16 +585,14 @@ public sealed class WeComChannel : IGatewayChannel
         {
             ["touser"] = recipientId,
             ["msgtype"] = "text",
-            ["agentid"] = _config.AgentId,
+            ["agentid"] = _config.AgentIdForRestApi,
             ["text"] = new Dictionary<string, object> { ["content"] = text }
         };
 
         var json = JsonSerializer.Serialize(payload, WeComJsonContext.Default.DictionaryStringObject);
         var url = $"{ApiBase}/cgi-bin/message/send?access_token={_accessToken}";
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var response = await _http.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)

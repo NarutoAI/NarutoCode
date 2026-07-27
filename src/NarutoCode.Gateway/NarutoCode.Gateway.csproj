@@ -9,4 +9,4 @@
         <ProjectReference Include="..\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
     </ItemGroup>
 
-</Project>
+<ItemGroup><InternalsVisibleTo Include="NarutoCode.Gateway.Tests" /></ItemGroup></Project>

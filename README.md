@@ -210,28 +210,44 @@ narutocode /path/to/workspace
 
 ```json
 {
-  "workspace": "/path/to/your/project",
-  "wecom": {
-    "enabled": true,
-    "botId": "aib-xxxxx",
-    "botSecret": "your-bot-secret",
-    "corpId": "your-corp-id",
-    "corpSecret": "your-corp-secret",
-    "agentId": 1000002,
-    "maxInboundChars": 4096
-  }
+  "weComBots": [
+    {
+      "id": "project-a-bot",
+      "workspace": "/path/to/your/project-a",
+      "enabled": true,
+      "botId": "aib-xxxxx",
+      "botSecret": "your-bot-secret",
+      "corpId": "your-corp-id",
+      "corpSecret": "your-corp-secret",
+      "agentIdForRestApi": 1000002,
+      "maxInboundChars": 4096
+    }
+  ]
 }
 ```
 
-企业微信凭据也可以通过环境变量提供，优先级高于配置文件：
+如果需要绑定多个企业微信机器人到不同的工作目录，可以在 `weComBots` 数组中配置多组：
 
-| 环境变量 | 对应配置项 |
-| --- | --- |
-| `WECOM_BOT_ID` | `wecom.botId` |
-| `WECOM_BOT_SECRET` | `wecom.botSecret` |
-| `WECOM_CORP_ID` | `wecom.corpId` |
-| `WECOM_CORP_SECRET` | `wecom.corpSecret` |
-| `WECOM_AGENT_ID` | `wecom.agentId` |
+```json
+{
+  "weComBots": [
+    {
+      "id": "project-a-bot",
+      "workspace": "/path/to/your/project-a",
+      "enabled": true,
+      "botId": "aib-aaa",
+      "botSecret": "secret-a"
+    },
+    {
+      "id": "project-b-bot",
+      "workspace": "/path/to/your/project-b",
+      "enabled": true,
+      "botId": "aib-bbb",
+      "botSecret": "secret-b"
+    }
+  ]
+}
+```
 
 ### 启动网关
 
@@ -251,24 +267,105 @@ narutocode /path/to/workspace
 网关已启动，按 Ctrl-C 退出。
 ```
 
-之后在企业微信中对机器人发送消息，Agent 会处理后自动回复。所有消息共享 `workspace` 指定的同一个工作目录会话。
+之后在企业微信中对机器人发送消息，Agent 会处理后自动回复。每个机器人绑定各自的工作目录会话，互不干扰。
 
 ### 网关配置项说明
 
 | 配置项 | 必填 | 说明 |
 | --- | --- | --- |
-| `workspace` | 是 | 固定工作目录路径，所有通道消息交给该目录的 Agent 会话处理。 |
-| `wecom.enabled` | 否 | 是否启用企业微信通道，`false` 时不启动。 |
-| `wecom.botId` | 是 | 企业微信 AI 机器人 BotId，格式 `aib-xxxxx`。 |
-| `wecom.botSecret` | 是 | AI 机器人长连接 Secret。 |
-| `wecom.corpId` | 否 | 企业 CorpID，REST API 降级发送使用。 |
-| `wecom.corpSecret` | 否 | 自建应用 Secret，用于获取 access_token。 |
-| `wecom.agentId` | 否 | 自建应用 AgentId。 |
-| `wecom.maxInboundChars` | 否 | 入站消息最大字符数，超出截断，默认 `4096`。 |
+| `weComBots` | 是 | 企业微信机器人绑定数组，至少配置一个。 |
+| `weComBots[].id` | 是 | Gateway 内部绑定标识，用于区分多个机器人，必须唯一。 |
+| `weComBots[].workspace` | 是 | 该机器人消息进入的根工作目录路径，不同绑定的工作目录不能重复。 |
+| `weComBots[].enabled` | 否 | 是否启动该机器人通道，默认 `false`。 |
+| `weComBots[].botId` | 是 | 企业微信 AI 机器人 BotId，格式 `aib-xxxxx`。 |
+| `weComBots[].botSecret` | 是 | AI 机器人长连接 Secret。 |
+| `weComBots[].corpId` | 否 | 企业 CorpID，REST API 降级发送使用。 |
+| `weComBots[].corpSecret` | 否 | 自建应用 Secret，用于获取 access_token。 |
+| `weComBots[].agentIdForRestApi` | 否 | 自建应用 AgentId，REST API 降级发送使用。 |
+| `weComBots[].maxInboundChars` | 否 | 入站消息最大字符数，超出截断，默认 `4096`。 |
 
-> `botId` 和 `botSecret` 用于接收消息（WebSocket 长连接）。`corpId`、`corpSecret`、`agentId` 为可选的 REST API 凭据，仅在 WebSocket 回复不可用时降级使用。
+> `botId` 和 `botSecret` 用于接收消息（WebSocket 长连接）。`corpId`、`corpSecret`、`agentIdForRestApi` 为可选的 REST API 凭据，仅在 WebSocket 回复不可用时降级使用。
 
-## 4. 切换模型 Provider
+企业微信凭据也可以通过环境变量提供，环境变量名以绑定 `id` 派生前缀。例如 `id` 为 `project-a-bot` 时，对应环境变量：
+
+| 环境变量 | 对应配置项 |
+| --- | --- |
+| `WECOM_PROJECT_A_BOT_BOT_ID` | `weComBots[].botId` |
+| `WECOM_PROJECT_A_BOT_BOT_SECRET` | `weComBots[].botSecret` |
+| `WECOM_PROJECT_A_BOT_CORP_ID` | `weComBots[].corpId` |
+| `WECOM_PROJECT_A_BOT_CORP_SECRET` | `weComBots[].corpSecret` |
+| `WECOM_PROJECT_A_BOT_AGENT_ID_FOR_REST_API` | `weComBots[].agentIdForRestApi` |
+
+> 规则：将绑定 `id` 中的非字母数字字符替换为下划线，全部转大写，加 `WECOM_` 前缀。
+
+## 4. 子 Agent 委派（可选）
+
+NarutoCode 支持在工作目录下配置子 Agent，让根 Agent 将特定任务委派给其他工作目录中的专业子 Agent 执行。
+
+### 配置文件
+
+创建配置文件：
+
+```text
+~/.narutocode/subagents.json
+```
+
+示例配置：
+
+```json
+{
+  "delegation": {
+    "agentExecutionTimeoutSeconds": 600
+  },
+  "workspaces": [
+    {
+      "workspace": "/path/to/your/project",
+      "subAgents": [
+        {
+          "id": "code-reviewer",
+          "name": "代码审查子 Agent",
+          "description": "负责审查代码的正确性、安全性和性能问题。",
+          "workspace": "/path/to/your/project-review"
+        },
+        {
+          "id": "release-operator",
+          "name": "发布执行子 Agent",
+          "description": "负责发布前检查、构建验证和发布清单生成。",
+          "workspace": "/path/to/your/project-release"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 工作原理
+
+- 子 Agent 的**可见性由根工作目录精确匹配**决定：只有当当前工作目录与配置中的 `workspace` 完全一致时，才会注入对应子 Agent。
+- 不存在全局可用的子 Agent。未配置的工作目录不会暴露任何委派能力，保持原有单 Agent 行为。
+- 每个子 Agent 在自身配置的 `workspace`（目标工作目录）中独立执行，拥有独立的文件系统、Shell 和会话上下文，不污染根会话历史。
+
+### 委派机制
+
+根 Agent 通过 `delegate_agents` 工具委派任务，支持两种调度模式：
+
+- **parallel**：同时执行多个互不依赖的子任务。
+- **sequential**：按顺序执行有前后依赖的子任务。
+
+### 配置项说明
+
+| 配置项 | 必填 | 说明 |
+| --- | --- | --- |
+| `delegation.agentExecutionTimeoutSeconds` | 否 | 单个子 Agent 任务最长执行秒数，默认 `600`。 |
+| `workspaces[].workspace` | 是 | 根工作目录路径，决定哪些工作目录会获得子 Agent 能力。 |
+| `workspaces[].subAgents[].id` | 是 | 在当前根工作目录范围内唯一的子 Agent 标识。 |
+| `workspaces[].subAgents[].name` | 是 | 子 Agent 名称，用于提示词和日志展示。 |
+| `workspaces[].subAgents[].description` | 是 | 子 Agent 职责描述，帮助根 Agent 判断何时委派。 |
+| `workspaces[].subAgents[].workspace` | 是 | 子 Agent 实际执行任务的目标工作目录。 |
+
+> `subagents.json` 不存在或为空时，根 Agent 不会暴露 `delegate_agents` 工具，行为与普通单 Agent 完全一致。
+
+## 5. 切换模型 Provider
 
 如果 `config.json` 中配置了多个模型，可以在运行中使用 `/provider` 查看和切换当前模型。
 
@@ -292,7 +389,7 @@ narutocode /path/to/workspace
 
 下次启动时会优先使用这个 provider。如果 `settings.json` 没有有效 provider，则自动使用 `llms` 数组的第一个配置。
 
-## 5. 配置推理强度
+## 6. 配置推理强度
 
 可以使用 `/effort` 查看和切换当前推理强度。
 
@@ -316,7 +413,7 @@ narutocode /path/to/workspace
 
 下次启动时会优先使用这个 effort。如果 `settings.json` 没有配置 effort，则默认使用 `medium`。
 
-## 6. 输入任务
+## 7. 输入任务
 
 启动后可以直接输入自然语言任务，例如：
 
@@ -336,7 +433,7 @@ narutocode /path/to/workspace
 运行测试并修复失败的问题
 ```
 
-## 7. 图片输入
+## 8. 图片输入
 
 如果需要让 Agent 分析图片，可以使用 `/image`：
 
@@ -356,7 +453,7 @@ png、jpg、jpeg、webp、gif
 /image ./before.png ./after.png 对比这两张图的差异
 ```
 
-## 8. 工具审批
+## 9. 工具审批
 
 默认情况下：
 
@@ -383,18 +480,18 @@ Shell 工具不需要额外审批。
 - `1`：同意执行
 - `0`：拒绝执行
 
-## 9. 运行中继续输入
+## 10. 运行中继续输入
 
 当 Agent 正在回复或执行任务时，你仍然可以继续输入下一条消息。NarutoCode 会把新输入加入队列，等当前任务结束后继续处理。
 
-## 10. 取消和退出
+## 11. 取消和退出
 
 - 取消当前操作：按 `Ctrl+C`
 - 退出工具：输入 `exit` 或 `quit`
 
 如果当前有正在运行的 Agent 操作，第一次 `Ctrl+C` 会优先取消当前操作。
 
-## 11. 会话历史和本地数据
+## 12. 会话历史和本地数据
 
 NarutoCode 会按工作目录保存会话历史。默认数据文件位置：
 
@@ -404,7 +501,7 @@ NarutoCode 会按工作目录保存会话历史。默认数据文件位置：
 
 下次在同一个工作目录启动时，会自动加载对应的历史会话。控制台会保留可见聊天记录；发送给模型的上下文会按配置自动压缩和截断，以减少长会话占用并避免超过模型窗口。
 
-## 12. 常见问题
+## 13. 常见问题
 
 ### 提示配置文件不存在怎么办？
 
