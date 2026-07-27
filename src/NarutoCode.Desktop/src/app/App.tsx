@@ -147,7 +147,6 @@ export function App() {
   const [conversationLoadError, setConversationLoadError] = useState<string | null>(null)
   const [settings, setSettings] = useState<LlmSettings | null>(null)
   const [query, setQuery] = useState('')
-  const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   // 按会话隔离的运行时状态，SSE 回调始终读写 ref，切换会话时同步到 state
   const runtimesRef = useRef<Map<string, ConversationRuntime>>(new Map())
@@ -255,10 +254,17 @@ export function App() {
     runtimesRef.current.set(conversationId, next)
     if (selectedConversationIdRef.current === conversationId) setCurrentRuntime(next)
   }
+  /** 合并流式内容，兼容上游发送累计快照和纯增量两种协议。 */
   const appendOrMerge = (conversationId: string, kind: LiveBlock['kind'], content: string) => {
     updateRuntime(conversationId, runtime => {
       const last = runtime.blocks.at(-1)
       if (last?.kind === kind && (kind === 'assistant' || kind === 'thinking')) {
+        // 新内容包含已渲染文本时是累计快照，应替换而不是重复拼接。
+        if (content.startsWith(last.content)) {
+          return { ...runtime, blocks: [...runtime.blocks.slice(0, -1), { ...last, content }] }
+        }
+        // 已完整渲染的重复事件或过期后缀不应再次追加。
+        if (last.content.endsWith(content)) return runtime
         return { ...runtime, blocks: [...runtime.blocks.slice(0, -1), { ...last, content: last.content + content }] }
       }
 
@@ -421,7 +427,7 @@ export function App() {
     return true
   }
   /** 立即发送空闲会话消息，或将运行中会话消息追加到 FIFO 队列。 */
-  const send = () => {
+  const send = (draft: string) => {
     if (!selectedConversation || (!draft.trim() && attachments.length === 0)) return
 
     const conversationId = selectedConversation.id
@@ -430,7 +436,6 @@ export function App() {
       attachments,
       createdAt: new Date().toISOString(),
     }
-    setDraft('')
     setAttachments([])
 
     const runtime = runtimesRef.current.get(conversationId)
@@ -524,7 +529,7 @@ export function App() {
         {currentRuntime.queuedMessages.length > 0 && <section className="queued-messages" aria-label="排队消息"><strong>排队消息（{currentRuntime.queuedMessages.length}）</strong>{currentRuntime.queuedMessages.map((message, index) => <div className="queued-message" key={message.createdAt}><span>{index + 1}</span><p>{message.content}</p></div>)}</section>}
         {(currentRuntime.activeRun || currentRuntime.isStartingRun) && currentRuntime.blocks.length === 0 && <div className="waiting-run"><span /><span /><span />正在启动任务</div>}
         <div ref={messageEnd} /></>}</div></section>
-      <Composer disabled={!selectedConversation} draft={draft} attachments={attachments} isRunning={!!currentRuntime.activeRun || currentRuntime.isStartingRun} queuedMessageCount={currentRuntime.queuedMessages.length} approvalPending={!!currentRuntime.approval} onDraftChange={setDraft} onSend={() => void send()} onAddImages={async () => setAttachments(await window.narutoCode.selectImages())} onPasteImage={pasteClipboardImage} onCancel={() => void cancelRun()} onRemoveAttachment={path => setAttachments(current => current.filter(item => item.path !== path))} onResolveApproval={approved => void resolveApproval(approved)} />
+      <Composer conversationId={selectedConversation?.id ?? null} disabled={!selectedConversation} attachments={attachments} isRunning={!!currentRuntime.activeRun || currentRuntime.isStartingRun} queuedMessageCount={currentRuntime.queuedMessages.length} approvalPending={!!currentRuntime.approval} onSend={send} onAddImages={async () => setAttachments(await window.narutoCode.selectImages())} onPasteImage={pasteClipboardImage} onCancel={() => void cancelRun()} onRemoveAttachment={path => setAttachments(current => current.filter(item => item.path !== path))} onResolveApproval={approved => void resolveApproval(approved)} />
     </main>
     <RunContextPanel workspace={selectedWorkspace} conversation={selectedConversation} blocks={currentRuntime.blocks} activeRun={currentRuntime.activeRun} />
   </div>

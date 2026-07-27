@@ -223,17 +223,20 @@ describe('App', () => {
     act(() => {
       onEvent?.({ runId: 'run-1', sequence: 3, eventType: 'tool.completed', content: null, approvalId: null })
       onEvent?.({ runId: 'run-1', sequence: 4, eventType: 'message.delta', content: '## 已完成\n\n- 支持 **Markdown**', approvalId: null })
-      onEvent?.({ runId: 'run-1', sequence: 5, eventType: 'approval.required', content: null, approvalId: 'approval-1' })
+      onEvent?.({ runId: 'run-1', sequence: 5, eventType: 'message.delta', content: '## 已完成\n\n- 支持 **Markdown**\n- 不重复拼接', approvalId: null })
+      onEvent?.({ runId: 'run-1', sequence: 6, eventType: 'approval.required', content: null, approvalId: 'approval-1' })
     })
 
     expect(screen.getByRole('button', { name: /读取 src\/App\.tsx/ })).toHaveAttribute('aria-expanded', 'false')
     expect(await screen.findByRole('heading', { name: '已完成' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { name: '已完成' })).toHaveLength(1)
+    expect(screen.getByText('不重复拼接')).toBeInTheDocument()
     expect(screen.getByText('等待工具授权')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '允许执行' }))
     await waitFor(() => expect(api.resolveApproval).toHaveBeenCalledWith('run-1', 'approval-1', true))
 
     act(() => {
-      onEvent?.({ runId: 'run-1', sequence: 6, eventType: 'run.completed', content: null, approvalId: null })
+      onEvent?.({ runId: 'run-1', sequence: 7, eventType: 'run.completed', content: null, approvalId: null })
     })
     await waitFor(() => expect(screen.queryByRole('button', { name: '取消运行' })).not.toBeInTheDocument())
     expect(screen.queryByText('正在启动任务')).not.toBeInTheDocument()
