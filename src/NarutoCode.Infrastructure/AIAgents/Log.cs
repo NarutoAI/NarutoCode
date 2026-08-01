@@ -84,4 +84,10 @@ internal static partial class Log
         Level = LogLevel.Error,
         Message = "创建会话 Agent Runtime 失败：工作目录 {WorkingDirectory}。")]
     public static partial void ConversationAgentRuntimeCreationFailed(ILogger logger, Exception exception, string workingDirectory);
+
+    [LoggerMessage(
+        EventId = 13,
+        Level = LogLevel.Warning,
+        Message = "配置的 Python 解释器路径不存在：{ConfiguredPath}，将自动探测可用解释器。")]
+    public static partial void PythonExecutableConfiguredNotFound(ILogger logger, string configuredPath);
 }

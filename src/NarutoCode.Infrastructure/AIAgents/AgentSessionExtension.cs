@@ -16,12 +16,12 @@ public static class AgentSessionExtension
         /// 是否开启计划模式
         /// </summary>
         /// <returns></returns>
-        public bool IsOpenPlan(AIAgent agent)
+        public async Task<bool> IsOpenPlanAsync(AIAgent agent)
         {
 #pragma warning disable MAAI001
             var agentModeProvider = agent.GetService<AgentModeProvider>();
             //
-            var mode = agentModeProvider?.GetMode(agentSession);
+            var mode =await agentModeProvider?.GetModeAsync(agentSession);
 
             return string.Equals(mode, "plan", StringComparison.CurrentCultureIgnoreCase);
 #pragma warning restore MAAI001

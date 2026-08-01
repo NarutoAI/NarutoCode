@@ -11,7 +11,7 @@ namespace NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 /// </summary>
 public class ListeningMessageQueueChatClient(IChatClient innerClient) : DelegatingChatClient(innerClient)
 {
-    public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+    public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = new CancellationToken())
     {
@@ -29,12 +29,15 @@ public class ListeningMessageQueueChatClient(IChatClient innerClient) : Delegati
             //读取消息
             if (pendingUserMessageQueue.TryDrain(out var queueMessage))
             {
-                messageInjectingChatClient!.EnqueueMessages(AIAgent.CurrentRunContext!.Session!,
-                    [new ChatMessage(ChatRole.User, [new TextContent(queueMessage)])]);
+               await messageInjectingChatClient!.EnqueueMessagesAsync(AIAgent.CurrentRunContext!.Session!,
+                    [new ChatMessage(ChatRole.User, [new TextContent(queueMessage)])], cancellationToken);
             }
         }
 #pragma warning restore MAAI001
-        return base.GetStreamingResponseAsync(messages, options, cancellationToken);
+        await foreach (var item in base.GetStreamingResponseAsync(messages, options, cancellationToken))
+        {
+            yield return item;
+        }
     }
 }
 

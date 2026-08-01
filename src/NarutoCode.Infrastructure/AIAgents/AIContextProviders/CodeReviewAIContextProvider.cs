@@ -16,7 +16,7 @@ public class CodeReviewAIContextProvider : AIContextProvider
     /// <summary>
     /// 本地shell工具
     /// </summary>
-    private readonly LocalShellExecutor _persistentShell = ShellExecutorFactory.Create();
+    private readonly ShellExecutor _persistentShell = ShellExecutorFactory.Create();
 
     public CodeReviewAIContextProvider(IChatClient chatClient, AIContextProvider[] aiContextProviders)
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Agents.AI.Tools.Shell;
 
@@ -12,15 +13,78 @@ internal static class ShellExecutorFactory
     /// 创建本地 Shell 执行器，Windows 下避免 cmd.exe 不支持持久模式导致启动失败。
     /// </summary>
     /// <returns>本地 Shell 执行器。</returns>
-    public static LocalShellExecutor Create()
+    public static ShellExecutor Create(string? workingDirectory = null)
     {
         var resolvedShell = ResolvedShell();
+        //校验是否存在docker 
+        if (IsExistsDocker(resolvedShell.shell))
+        {
+            return new DockerShellExecutor(new DockerShellExecutorOptions
+            {
+                Mode = resolvedShell.model,
+            });
+        }
+
         return new LocalShellExecutor(new LocalShellExecutorOptions
         {
-            Mode =resolvedShell.model,
+            Mode = resolvedShell.model,
             Shell = resolvedShell.shell,
-            AcknowledgeUnsafe = true
+            AcknowledgeUnsafe = true,
+            WorkingDirectory = workingDirectory is null ? null : Path.GetFullPath(workingDirectory),
+            ConfineWorkingDirectory = !string.IsNullOrWhiteSpace(workingDirectory)
         });
+    }
+
+    private static bool IsExistsDocker(string binary )
+    {
+        return false;//todo 后面处理
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = binary,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = false,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        if (binary.Contains("pwsh") || binary.Contains("powershell"))
+        {
+            startInfo.ArgumentList.Add("-Command");
+        }
+        else if (binary.Contains("cmd"))
+        {
+            startInfo.ArgumentList.Add("/c");
+        }
+        else
+        {
+            startInfo.ArgumentList.Add("-c");
+        }
+      
+        startInfo.ArgumentList.Add("docker --version");
+        using var process = Process.Start(startInfo);
+
+        try
+        {
+            if (process is null)
+            {
+                return false;
+            }
+
+            var error = process.StandardError.ReadToEnd();
+
+            process.WaitForExit();
+            
+            if (process.ExitCode != 0)
+            {
+                return false;
+            }
+
+            return !(error.Length > 0);
+        }
+        catch (Exception ex)
+        {
+            return false;
+        }
     }
 
     //代码参考  ShellResolver

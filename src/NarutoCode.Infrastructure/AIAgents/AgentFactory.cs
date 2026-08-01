@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.LocalCodeAct;
 using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -225,13 +226,15 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             ChatHistoryProvider = persistHistory ? persistenceChatHistoryProvider : new InMemoryChatHistoryProvider(),
             ChatOptions = new ChatOptions
             {
-                Reasoning = new() { Output = ReasoningOutput.Summary }
+                Reasoning = new() { Output = ReasoningOutput.Summary },
+                Tools = [persistentShell.AsAIFunction()]
             },
-            ShellExecutor = persistentShell,
             DisableAgentSkillsProvider = true,
             AIContextProviders =
             [
                 skillsProvider,
+                new ShellEnvironmentProvider(persistentShell),
+                new LocalCodeActProvider(PythonExecutableResolver.Resolve(_logger)),
                 ToolContinuationSkippingAiContextProvider.Wrap(new TaskProvider()),
                 new CodeReviewAIContextProvider(_dynamicChatClient, [fileAccessProvider]),
                 new FSTollsAiContextProvider(fixedWorkspaceAccessor),
@@ -256,7 +259,6 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
                 new CollectApprovalToolAiContextProvider()
             ],
             DisableTodoProvider = true,
-            DisableFileAccess = true,
             DisableCompaction = true,
             ToolApprovalAgentOptions = new ToolApprovalAgentOptions
             {
@@ -265,7 +267,8 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             LoopEvaluators =
             [
                 new TodoCompletionLoopEvaluator(new TodoCompletionLoopEvaluatorOptions { Modes = ["execute"] }),
-                new TaskLoopEvaluator()
+                new TaskLoopEvaluator(),
+                // new AIJudgeLoopEvaluator(_dynamicChatClient)
             ]
         }, _loggerFactory);
     }

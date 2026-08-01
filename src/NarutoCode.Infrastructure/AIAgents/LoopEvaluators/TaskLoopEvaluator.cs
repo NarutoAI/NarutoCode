@@ -13,7 +13,7 @@ public class TaskLoopEvaluator : LoopEvaluator
         CancellationToken cancellationToken = new CancellationToken())
     {
         //如果开启计划或者待办的话 返回允许用户审批
-        if (context.Session.IsOpenPlan(context.Agent) || await context.Session.IsOpenTodoAsync(context.Agent))
+        if (await context.Session.IsOpenPlanAsync(context.Agent) || await context.Session.IsOpenTodoAsync(context.Agent))
         {
             return LoopEvaluation.Stop();
         }

@@ -18,7 +18,9 @@
         <PackageReference Include="Microsoft.Agents.AI"/>
         <PackageReference Include="Microsoft.Agents.AI.Anthropic"/>
         <PackageReference Include="Microsoft.Agents.AI.Harness"/>
+        <PackageReference Include="Microsoft.Agents.AI.LocalCodeAct" />
         <PackageReference Include="Microsoft.Agents.AI.OpenAI"/>
+        <PackageReference Include="Microsoft.Agents.AI.Tools.Shell" />
         <PackageReference Include="Microsoft.Data.Sqlite"/>
         <PackageReference Include="ModelContextProtocol"/>
         <PackageReference Include="Serilog"/>
