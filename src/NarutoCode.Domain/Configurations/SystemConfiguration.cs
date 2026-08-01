@@ -11,6 +11,11 @@ public sealed class SystemConfiguration
     public string LogLevel { get; set; } = "Error";
 
     /// <summary>
+    /// LocalCodeAct 执行器使用的 Python 解释器路径；为空时依次按虚拟环境（VIRTUAL_ENV/CONDA_PREFIX）、PATH 中的 python3/python、平台默认路径自动探测。
+    /// </summary>
+    public string? PythonExecutablePath { get; set; }
+
+    /// <summary>
     /// 压缩策略阈值配置
     /// </summary>
     public CompactionThresholds CompactionThresholds { get; set; } = new();
