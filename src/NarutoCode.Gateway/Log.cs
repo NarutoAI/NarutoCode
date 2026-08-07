@@ -35,6 +35,9 @@ internal static partial class Log
     [LoggerMessage(1012, LogLevel.Warning, "企业微信 WebSocket 发送失败。")]
     public static partial void WeComWsSendError(ILogger logger, Exception exception);
 
+    [LoggerMessage(1013, LogLevel.Debug, "企业微信收到 WebSocket 帧 cmd={Cmd} req_id={ReqId} 长度={Length}")]
+    public static partial void WeComFrameReceived(ILogger logger, string? cmd, string? reqId, int length);
+
     // ── 企业微信协议 ──
 
     [LoggerMessage(1020, LogLevel.Error, "企业微信响应失败 req_id={ReqId} errcode={ErrCode} errmsg={ErrMsg}")]

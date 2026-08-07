@@ -208,6 +208,9 @@ public sealed class WeComChannel : IGatewayChannel
         var cmd = GetString(root, "cmd");
         var reqId = GetReqId(root);
 
+        // 记录收到的帧（含消息回调、认证/心跳响应等），便于调试追踪
+        Log.WeComFrameReceived(_logger, cmd, reqId, json.Length);
+
         // 无 cmd → 服务端响应帧（认证/心跳结果）
         if (cmd is null)
         {
