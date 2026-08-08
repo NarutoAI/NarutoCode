@@ -41,4 +41,9 @@ public sealed class LlmConfiguration
     /// 模型最大输出 Token 数，用于限制单次回复长度和计算输入预算。
     /// </summary>
     public int MaxOutputTokens { get; set; } = 128_000;
+
+    /// <summary>
+    /// 模型是否支持视觉输入；为 false 时读取聊天历史会过滤其中的图片内容。
+    /// </summary>
+    public bool SupportsVision { get; set; }
 }

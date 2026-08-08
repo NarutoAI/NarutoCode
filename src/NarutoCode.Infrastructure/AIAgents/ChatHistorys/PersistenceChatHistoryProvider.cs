@@ -2,6 +2,7 @@
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 
@@ -12,7 +13,8 @@ namespace NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 /// </summary>
 public class PersistenceChatHistoryProvider(
     IChatHistoryPersistenceHandler? persistenceHandler
-    ,CompactionStrategyCoordinator compactionStrategyCoordinator)
+    ,CompactionStrategyCoordinator compactionStrategyCoordinator
+    ,ILlmSettingsService llmSettingsService)
     : ChatHistoryProvider
 {
     //设置状态信息
@@ -31,7 +33,54 @@ public class PersistenceChatHistoryProvider(
         var state = this._sessionState.GetOrInitializeState(context.Session);
         //消息裁剪，使用最近一次调用的真实输入 token 用量作为压缩判断依据
         state.Messages = (await compactionStrategyCoordinator.ReduceAsync(state.Messages, state.LastInputTokenCount, cancellationToken)).ToList();
+
+        //当前模型不支持视觉时，过滤历史消息中的图片内容，避免纯文本模型收到 DataContent 导致调用失败
+        if (!llmSettingsService.CurrentLlm.SupportsVision)
+        {
+            return FilterVisionUnsupportedMessages(state.Messages);
+        }
+
         return state.Messages;
+    }
+
+    /// <summary>
+    /// 过滤不支持视觉的模型历史消息中的图片内容，以 [image] 占位文本替换；
+    /// 返回新集合，不修改原始消息，保证切回支持视觉的模型后历史图片仍可用。
+    /// </summary>
+    /// <param name="messages">需要过滤的聊天消息。</param>
+    /// <returns>过滤图片后的新消息集合。</returns>
+    internal static List<ChatMessage> FilterVisionUnsupportedMessages(IEnumerable<ChatMessage> messages)
+    {
+        var result = new List<ChatMessage>();
+        foreach (var message in messages)
+        {
+            //无图片内容的消息原样返回
+            if (message.Contents is not { Count: > 0 } || !message.Contents.Any(content => content is DataContent))
+            {
+                result.Add(message);
+                continue;
+            }
+
+            //克隆消息后重建 Contents，避免污染内存中/持久化的原始历史
+            var cloned = message.Clone();
+            var newContents = new List<AIContent>();
+            foreach (var content in cloned.Contents)
+            {
+                //图片内容统一替换为占位文本，与 ImageCompactionStrategy 保持一致
+                newContents.Add(content is DataContent ? new TextContent("[image]") : content);
+            }
+
+            //防御：过滤后若 Contents 为空（理论上不会出现），补占位避免模型收到空消息
+            if (newContents.Count == 0)
+            {
+                newContents.Add(new TextContent("[image]"));
+            }
+
+            cloned.Contents = newContents;
+            result.Add(cloned);
+        }
+
+        return result;
     }
 
     protected override async ValueTask StoreChatHistoryAsync(InvokedContext context,

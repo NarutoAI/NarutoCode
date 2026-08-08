@@ -6,6 +6,7 @@ using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using NarutoCode.Domain;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
@@ -33,6 +34,7 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
     private readonly DynamicChatClient _dynamicChatClient;
     private readonly McpClientManager _mcpClientManager;
     private readonly SubAgentRegistry _subAgentRegistry;
+    private readonly ILlmSettingsService _llmSettingsService;
     private readonly ConcurrentDictionary<string, WorkspaceAgentPool> _workspacePools = new(StringComparer.Ordinal);
     private readonly ILogger<AgentFactory> _logger;
     private int _disposed;
@@ -47,7 +49,8 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
         CompactionStrategyCoordinator compactionStrategyCoordinator,
         DynamicChatClient dynamicChatClient,
         McpClientManager mcpClientManager,
-        SubAgentRegistry subAgentRegistry)
+        SubAgentRegistry subAgentRegistry,
+        ILlmSettingsService llmSettingsService)
     {
         this._workspaceContextAccessor = workspaceContextAccessor;
         this._chatHistoryPersistenceHandler = chatHistoryPersistenceHandler;
@@ -56,6 +59,7 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
         this._dynamicChatClient = dynamicChatClient;
         this._mcpClientManager = mcpClientManager;
         this._subAgentRegistry = subAgentRegistry;
+        this._llmSettingsService = llmSettingsService;
         _logger = loggerFactory.CreateLogger<AgentFactory>();
     }
     
@@ -161,7 +165,8 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
 
         var persistenceChatHistoryProvider = new PersistenceChatHistoryProvider(
             _chatHistoryPersistenceHandler,
-            _compactionStrategyCoordinator);
+            _compactionStrategyCoordinator,
+            _llmSettingsService);
         var fileStore = new FileSystemAgentFileStore(workingDirectory);
         var fileAccessProvider = new FileAccessProvider(
             fileStore,

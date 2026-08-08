@@ -22,7 +22,8 @@ NarutoCode 是一个在终端中使用的 Agent 编程工具。启动后，你�
       "apiKey": "YOUR_OPENAI_API_KEY",
       "model": "gpt-4.1",
       "maxContextWindowTokens": 128000,
-      "maxOutputTokens": 16384
+      "maxOutputTokens": 16384,
+      "supportsVision": true
     },
     {
       "provider": "DeepSeek",
@@ -71,7 +72,8 @@ NarutoCode 是一个在终端中使用的 Agent 编程工具。启动后，你�
   "apiKey": "YOUR_API_KEY",
   "model": "claude-sonnet-4-20250514",
   "maxContextWindowTokens": 200000,
-  "maxOutputTokens": 16384
+  "maxOutputTokens": 16384,
+  "supportsVision": true
 }
 ```
 
@@ -140,6 +142,7 @@ NarutoCode 会额外使用运行时设置文件保存当前默认模型：
 | `llms[].model` | 是 | 要使用的模型名称。 |
 | `llms[].maxContextWindowTokens` | 否 | 最大上下文窗口 Token 数。 |
 | `llms[].maxOutputTokens` | 否 | 模型最大输出 Token 数，默认 `128000`。 |
+| `llms[].supportsVision` | 否 | 模型是否支持视觉输入，默认 `false`。为 `false` 时，发送给模型的聊天历史会过滤其中的图片内容（替换为 `[image]` 占位文本），图片输入功能不可用。 |
 | `system.logLevel` | 否 | 日志最小输出级别，支持 `Trace`、`Debug`、`Information`、`Warning`、`Error`、`Critical`；未配置或配置无效时默认 `Error`。 |
 | `system.compactionThresholds.imageCompaction` | 否 | 图片压缩触发阈值（相对于上下文窗口的比例），默认 `0.25`。当 Token 使用率达到上下文窗口的 25% 时触发图片压缩。 |
 | `system.compactionThresholds.toolEviction` | 否 | 工具结果压缩触发阈值（相对于上下文窗口的比例），默认 `0.6`。当 Token 使用率达到上下文窗口的 60% 时触发工具结果压缩。 |
@@ -452,6 +455,27 @@ png、jpg、jpeg、webp、gif
 ```text
 /image ./before.png ./after.png 对比这两张图的差异
 ```
+
+图片输入依赖当前模型支持视觉。需要为当前使用的模型在 `config.json` 中开启：
+
+```json
+{
+  "llms": [
+    {
+      "provider": "OpenAI",
+      "protocol": "OpenAIChat",
+      "address": "https://api.openai.com/v1",
+      "apiKey": "YOUR_OPENAI_API_KEY",
+      "model": "gpt-4.1",
+      "maxContextWindowTokens": 128000,
+      "maxOutputTokens": 16384,
+      "supportsVision": true
+    }
+  ]
+}
+```
+
+未开启（默认 `false`）时，聊天历史中的图片会被替换为 `[image]` 占位文本，模型无法分析图片内容。
 
 ## 9. 工具审批
 
