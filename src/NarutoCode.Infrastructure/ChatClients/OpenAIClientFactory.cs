@@ -6,7 +6,7 @@ namespace NarutoCode.Infrastructure.ChatClients;
 
 internal static class OpenAIClientFactory
 {
-    private static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(60);
 
     public static OpenAIClient Create(LlmConfiguration configuration)
     {

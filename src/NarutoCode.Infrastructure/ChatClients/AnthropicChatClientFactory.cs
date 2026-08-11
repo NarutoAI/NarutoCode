@@ -6,7 +6,7 @@ namespace NarutoCode.Infrastructure.ChatClients;
 
 public class AnthropicChatClientFactory : IChatClientFactory
 {
-    private static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(60);
 
     public IChatClient Create(LlmConfiguration configuration)
     {
