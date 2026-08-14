@@ -288,11 +288,10 @@ internal sealed class ChatMessageListView : View
     private void ReplaceLastMessage(ChatMessage message, int width)
     {
         var start = messageLineStarts[^1];
-        RemoveLabelsFrom(start);
         renderedLines.RemoveRange(start, renderedLines.Count - start);
         var newLines = ChatMessageLineBuilder.Build(message, width);
         renderedLines.AddRange(newLines);
-        AddLabelsFrom(start, newLines.Count);
+        SynchronizeLineLabels(start);
     }
 
     private void AppendMessage(ChatMessage message, int width)
@@ -301,12 +300,13 @@ internal sealed class ChatMessageListView : View
         var start = renderedLines.Count;
         var newLines = ChatMessageLineBuilder.Build(message, width);
         renderedLines.AddRange(newLines);
-        AddLabelsFrom(start, newLines.Count);
+        SynchronizeLineLabels(start);
     }
 
     private void RebuildAll(IReadOnlyList<ChatMessage> messages, int width)
     {
-        ClearAll();
+        renderedLines.Clear();
+        messageLineStarts.Clear();
         foreach (var message in messages)
         {
             messageLineStarts.Add(renderedLines.Count);
@@ -314,7 +314,7 @@ internal sealed class ChatMessageListView : View
             renderedLines.AddRange(lines);
         }
 
-        AddLabelsFrom(0, renderedLines.Count);
+        SynchronizeLineLabels(0);
     }
 
     private void ClearAll()
@@ -329,33 +329,43 @@ internal sealed class ChatMessageListView : View
         messageLineStarts.Clear();
     }
 
-    private void AddLabelsFrom(int start, int count)
+    /// <summary>
+    /// 将行数据同步到既有 Label：宽度变化时复用控件，只更新文本和样式，
+    /// 避免横向缩放期间为全部历史行执行 Remove/Add 及其关联布局。
+    /// </summary>
+    /// <param name="start">需要更新的起始行。</param>
+    private void SynchronizeLineLabels(int start)
     {
-        for (var index = 0; index < count; index++)
+        while (lineLabels.Count > renderedLines.Count)
         {
-            var lineIndex = start + index;
-            var line = renderedLines[lineIndex];
+            var label = lineLabels[^1];
+            Remove(label);
+            lineLabels.RemoveAt(lineLabels.Count - 1);
+        }
+
+        for (var index = start; index < renderedLines.Count; index++)
+        {
+            var line = renderedLines[index];
+            if (index < lineLabels.Count)
+            {
+                var existingLabel = lineLabels[index];
+                existingLabel.Text = line.Text;
+                existingLabel.Y = index;
+                existingLabel.SetScheme(TuiStyles.GetScheme(line.Style));
+                continue;
+            }
+
             var label = new Label
             {
                 Text = line.Text,
                 X = 0,
-                Y = lineIndex,
+                Y = index,
                 Width = Dim.Fill(),
                 Height = 1
             };
             label.SetScheme(TuiStyles.GetScheme(line.Style));
             lineLabels.Add(label);
             Add(label);
-        }
-    }
-
-    private void RemoveLabelsFrom(int start)
-    {
-        while (lineLabels.Count > start)
-        {
-            var label = lineLabels[^1];
-            Remove(label);
-            lineLabels.RemoveAt(lineLabels.Count - 1);
         }
     }
 }

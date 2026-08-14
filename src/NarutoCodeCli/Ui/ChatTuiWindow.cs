@@ -22,7 +22,6 @@ internal sealed class ChatTuiWindow : Window
     private readonly Label brandLabel = new();
     private readonly Label dividerLabel = new();
     private readonly Label cwdLabel = new();
-    private readonly Label messageRailLabel = new();
     private readonly Label statusLabel = new();
     private readonly Label inputPromptLabel = new();
     private readonly Label pendingImagesLabel = new();
@@ -45,6 +44,7 @@ internal sealed class ChatTuiWindow : Window
     private long contextTokenUsage;
     private int queuedMessageCount;
     private bool inputFocusInitialized;
+    private int renderedDividerWidth = -1;
 
     /// <summary>
     /// 用户请求退出（Ctrl+C 且无运行中任务）时触发。
@@ -85,69 +85,62 @@ internal sealed class ChatTuiWindow : Window
         Height = Dim.Fill();
 
         brandLabel.Text = "◆ NarutoCode";
-        brandLabel.X = 2;
+        brandLabel.X = 0;
         brandLabel.Y = 0;
-        brandLabel.Width = Dim.Fill(Dim.Absolute(2));
+        brandLabel.Width = Dim.Fill();
         brandLabel.SetScheme(TuiStyles.GetBrandScheme());
 
         // 品牌头下方的装饰分隔线，分隔标题区与消息区，避免内容堆叠。
         // 文本长度在布局时按窗口宽度重新生成，保证缩放后分隔线始终铺满。
         dividerLabel.Text = new string('─', 96);
-        dividerLabel.X = 2;
+        dividerLabel.X = 0;
         dividerLabel.Y = 1;
-        dividerLabel.Width = Dim.Fill(Dim.Absolute(2));
+        dividerLabel.Width = Dim.Fill();
         dividerLabel.SetScheme(TuiStyles.GetDividerScheme());
 
-        cwdLabel.X = 2;
+        cwdLabel.X = 0;
         cwdLabel.Y = 2;
-        cwdLabel.Width = Dim.Fill(Dim.Absolute(2));
+        cwdLabel.Width = Dim.Fill();
         cwdLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.Muted));
 
-        // 左侧导轨只承担当前阅读位置的视觉锚点，不参与消息滚动与焦点逻辑。
-        messageRailLabel.X = 0;
-        messageRailLabel.Y = 4;
-        messageRailLabel.Width = 1;
-        messageRailLabel.Height = Dim.Fill(Dim.Absolute(8));
-        messageRailLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.Secondary));
-
-        // 消息区向内缩进两列，给左侧导轨和正文留出稳定层级。
-        messageList.X = 2;
+        // 消息区直接使用全宽，避免窄终端中左侧装饰占用正文列数。
+        messageList.X = 0;
         messageList.Y = 4;
-        messageList.Width = Dim.Fill(Dim.Absolute(2));
-        messageList.Height = Dim.Fill(Dim.Absolute(8));
+        messageList.Width = Dim.Fill();
+        messageList.Height = Dim.Fill(Dim.Absolute(5));
         messageList.StateChanged += RefreshStatus;
 
         // 底部固定四行：待发图片栏 + 输入面板 + 状态 + 快捷键栏。
-        // AnchorEnd 相对窗口 Frame（含边框）定位，偏移需避开下边框。
+        // Window 无边框，四行直接贴齐底部，避免输入区下方产生无效留白。
         pendingImagesLabel.X = 0;
-        pendingImagesLabel.Y = Pos.AnchorEnd(7);
+        pendingImagesLabel.Y = Pos.AnchorEnd(4);
         pendingImagesLabel.Width = Dim.Fill();
         pendingImagesLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.Warning));
         pendingImagesLabel.Text = string.Empty;
 
         inputPromptLabel.Text = "❯ ";
         inputPromptLabel.X = 0;
-        inputPromptLabel.Y = Pos.AnchorEnd(6);
+        inputPromptLabel.Y = Pos.AnchorEnd(3);
         inputPromptLabel.Width = 2;
         inputPromptLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.AccentStrong));
 
-        inputField = new ChatInputField { X = 2, Y = Pos.AnchorEnd(6), Width = Dim.Fill() };
+        inputField = new ChatInputField { X = 2, Y = Pos.AnchorEnd(3), Width = Dim.Fill() };
         inputField.SetScheme(TuiStyles.GetInputScheme());
         inputField.SubmitPressed += OnInputAccepted;
         inputField.PasteImageRequested += OnPasteImageRequested;
 
         statusLabel.X = 0;
-        statusLabel.Y = Pos.AnchorEnd(5);
+        statusLabel.Y = Pos.AnchorEnd(2);
         statusLabel.Width = Dim.Fill();
         statusLabel.SetScheme(TuiStyles.GetInputPanelScheme());
 
         hintLabel.X = 0;
-        hintLabel.Y = Pos.AnchorEnd(4);
+        hintLabel.Y = Pos.AnchorEnd(1);
         hintLabel.Width = Dim.Fill();
         hintLabel.SetScheme(TuiStyles.GetInputPanelScheme());
         hintLabel.Text = "⏎ send    Ctrl+V 贴图（可多张，Enter 发送）    Tab messages    / commands    Esc interrupt";
 
-        Add(brandLabel, dividerLabel, cwdLabel, messageRailLabel, messageList, statusLabel, pendingImagesLabel, inputPromptLabel, inputField, hintLabel);
+        Add(brandLabel, dividerLabel, cwdLabel, messageList, statusLabel, pendingImagesLabel, inputPromptLabel, inputField, hintLabel);
 
         RefreshHeader();
         RefreshStatus();
@@ -222,7 +215,6 @@ internal sealed class ChatTuiWindow : Window
     protected override void OnSubViewsLaidOut(LayoutEventArgs e)
     {
         base.OnSubViewsLaidOut(e);
-        RefreshMessageRail();
         RefreshDivider();
 
         if (!inputFocusInitialized)
@@ -389,21 +381,18 @@ internal sealed class ChatTuiWindow : Window
     }
 
     /// <summary>
-    /// 按消息区当前高度补齐左侧导轨，保证终端 resize 后仍保持连续视觉锚点。
-    /// </summary>
-    private void RefreshMessageRail()
-    {
-        var lineCount = Math.Max(1, messageRailLabel.Frame.Height);
-        messageRailLabel.Text = string.Join(Environment.NewLine, Enumerable.Repeat("|", lineCount));
-    }
-
-    /// <summary>
     /// 按窗口当前宽度重新生成品牌分隔线，保证终端缩放后分隔线始终铺满且无空白。
     /// </summary>
     private void RefreshDivider()
     {
-        // 分隔线 X=2 且 Width=Fill(-2)，文本长度取可用宽度
-        var width = Math.Max(1, Viewport.Width - 4);
+        // 分隔线占满窗口宽度，文本长度取当前可用列数。
+        var width = Math.Max(1, Viewport.Width);
+        if (width == renderedDividerWidth)
+        {
+            return;
+        }
+
+        renderedDividerWidth = width;
         dividerLabel.Text = new string('─', width);
     }
 

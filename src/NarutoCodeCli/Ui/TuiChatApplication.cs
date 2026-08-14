@@ -86,9 +86,17 @@ internal sealed class TuiChatApplication(
         }
 
         var launcherWindow = new SessionLauncherWindow(app, launcherData.Value.WorkDirectory, launcherData.Value.Conversations);
-        app.Run(launcherWindow);
-        launcherWindow.Dispose();
-        return launcherWindow.SelectionResult;
+        var screenSizeMonitor = StartScreenSizeMonitor(app);
+        try
+        {
+            app.Run(launcherWindow);
+            return launcherWindow.SelectionResult;
+        }
+        finally
+        {
+            app.RemoveTimeout(screenSizeMonitor);
+            launcherWindow.Dispose();
+        }
     }
 
     /// <summary>
@@ -101,6 +109,7 @@ internal sealed class TuiChatApplication(
         app.AppModel = AppModel.FullScreen;
         app.Init();
         EnsureDriverScreenSize(app);
+        var screenSizeMonitor = StartScreenSizeMonitor(app);
 
         var chatWindow = new ChatTuiWindow(app, workspaceContextAccessor, pendingUserMessageQueue, cancellationCoordinator, clipboardImageStore, llmSettingsService);
         var businessTask = Task.Run(() => RunChatLoopAsync(app, chatWindow, cancellationToken));
@@ -110,6 +119,7 @@ internal sealed class TuiChatApplication(
         }
         finally
         {
+            app.RemoveTimeout(screenSizeMonitor);
             chatWindow.Dispose();
         }
 
@@ -315,14 +325,40 @@ internal sealed class TuiChatApplication(
     }
 
     /// <summary>
+    /// 启动运行期间的终端尺寸同步：部分编辑器内嵌终端不会把面板 resize 及时通知 Terminal.Gui，
+    /// 因此在 UI 线程定期比对 .NET 终端尺寸与 Driver 尺寸，仅在发生差异时更新绘制画布。
+    /// </summary>
+    /// <param name="app">Terminal.Gui 应用实例。</param>
+    /// <returns>可用于取消定时器的令牌。</returns>
+    private static object StartScreenSizeMonitor(IApplication app)
+    {
+        return app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+        {
+            SynchronizeDriverScreenSize(app, fallbackToDefault: false);
+            return true;
+        }) ?? throw new InvalidOperationException("无法创建终端尺寸同步定时器。");
+    }
+
+    /// <summary>
     /// 兜底设置终端尺寸：当 Terminal.Gui 的 CSI 18t 尺寸查询未被终端响应（如 macOS Terminal.app）
     /// 导致 Driver.Cols/Rows 为 0 时，用 .NET 原生终端尺寸（基于 ioctl）恢复屏幕大小，避免整屏空白。
     /// </summary>
     /// <param name="app">Terminal.Gui 应用实例。</param>
     private static void EnsureDriverScreenSize(IApplication app)
     {
+        SynchronizeDriverScreenSize(app, fallbackToDefault: true);
+    }
+
+    /// <summary>
+    /// 将 .NET 终端尺寸同步到 Terminal.Gui Driver。Driver 尺寸已匹配时不执行反射调用，
+    /// 避免普通绘制帧产生额外布局和输出缓冲重建。
+    /// </summary>
+    /// <param name="app">Terminal.Gui 应用实例。</param>
+    /// <param name="fallbackToDefault">读取终端尺寸失败时是否回退到 80x25。</param>
+    private static void SynchronizeDriverScreenSize(IApplication app, bool fallbackToDefault)
+    {
         var driver = app.Driver;
-        if (driver is null || (driver.Cols > 0 && driver.Rows > 0))
+        if (driver is null)
         {
             return;
         }
@@ -334,14 +370,24 @@ internal sealed class TuiChatApplication(
             width = Console.WindowWidth;
             height = Console.WindowHeight;
         }
-        catch (IOException)
+        catch (IOException) when (fallbackToDefault)
         {
-            // 极少数终端不支持查询窗口尺寸时回退到 80x25
+            // 极少数终端不支持查询窗口尺寸时，启动阶段回退到可用的默认画布。
             width = 80;
             height = 25;
         }
+        catch (IOException)
+        {
+            // 运行期间查询失败时保留既有 Driver 尺寸，避免无意义地抖动画布。
+            return;
+        }
 
-        // SetScreenSize 定义在 internal DriverImpl 上（公开 virtual 方法），反射调用以重建输出缓冲并广播尺寸变化
+        if (width <= 0 || height <= 0 || (driver.Cols == width && driver.Rows == height))
+        {
+            return;
+        }
+
+        // SetScreenSize 定义在 internal DriverImpl 上（公开 virtual 方法），反射调用以重建输出缓冲并广播尺寸变化。
         var setScreenSize = driver.GetType().GetMethod("SetScreenSize", [typeof(int), typeof(int)]);
         setScreenSize?.Invoke(driver, [width, height]);
     }
