@@ -2,6 +2,7 @@
 using NarutoCode.Application.Conversations;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 
 namespace NarutoCode.Application.Tests.Conversations;
@@ -89,6 +90,24 @@ public sealed class ConversationServiceWorkspaceTests
             return Task.FromResult(result);
         }
 
+        public Task<WorkspaceSummary> GetOrCreateWorkspaceAsync(
+            string workDirectory,
+            CancellationToken cancellationToken = default)
+        {
+            RequestedWorkDirectory = workDirectory;
+            return Task.FromResult(new WorkspaceSummary(7, "workspace", workDirectory, 0, DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow, 0));
+        }
+
+        public Task<IReadOnlyList<ConversationSummary>> ListByProjectIdAsync(
+            long projectId,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<ConversationSummary> result = hasExistingConversation
+                ? [CreateSummary(ExistingConversationId)]
+                : [];
+            return Task.FromResult(result);
+        }
+
         public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
             CancellationToken cancellationToken = default)
         {
@@ -105,6 +124,52 @@ public sealed class ConversationServiceWorkspaceTests
             {
                 Id = ExistingConversationId,
                 WorkDirectory = workDirectory
+            });
+        }
+
+        public Task<Conversation> CreateForProjectIdAsync(
+            long projectId,
+            CancellationToken cancellationToken = default)
+        {
+            CreateCallCount++;
+            return Task.FromResult(new Conversation
+            {
+                Id = ExistingConversationId,
+                ProjectId = projectId,
+                WorkDirectory = RequestedWorkDirectory ?? string.Empty
+            });
+        }
+
+        public Task<Conversation> CreateForProjectIdAsync(
+            long projectId,
+            ConversationSource source,
+            string sourceId,
+            CancellationToken cancellationToken = default)
+        {
+            CreateCallCount++;
+            return Task.FromResult(new Conversation
+            {
+                Id = ExistingConversationId,
+                ProjectId = projectId,
+                WorkDirectory = RequestedWorkDirectory ?? string.Empty,
+                Source = source,
+                SourceId = sourceId
+            });
+        }
+
+        public Task<Conversation> GetOrCreateBySourceAsync(
+            long projectId,
+            ConversationSource source,
+            string sourceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new Conversation
+            {
+                Id = ExistingConversationId,
+                ProjectId = projectId,
+                WorkDirectory = RequestedWorkDirectory ?? string.Empty,
+                Source = source,
+                SourceId = sourceId
             });
         }
 

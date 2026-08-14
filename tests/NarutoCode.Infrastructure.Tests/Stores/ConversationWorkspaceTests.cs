@@ -3,7 +3,7 @@
 namespace NarutoCode.Infrastructure.Tests.Stores;
 
 /// <summary>
-/// 验证会话仓储能够按工作目录聚合桌面端工作区摘要。
+/// 验证项目表通过项目主键关联会话并提供桌面端项目摘要。
 /// </summary>
 [TestClass]
 public sealed class ConversationWorkspaceTests
@@ -23,10 +23,10 @@ public sealed class ConversationWorkspaceTests
     }
 
     /// <summary>
-    /// 多个会话应按工作目录聚合，并按最近更新时间倒序返回。
+    /// 项目应通过项目主键关联会话，并按关联会话最近更新时间排序。
     /// </summary>
     [TestMethod]
-    public async Task ListWorkspacesAsync_GroupsConversationsByWorkDirectory()
+    public async Task ListWorkspacesAsync_JoinsProjectsAndConversationsByProjectId()
     {
         // Arrange
         databasePath = Path.Combine(Path.GetTempPath(), $"narutocode-workspaces-{Guid.NewGuid():N}.db");
@@ -55,9 +55,22 @@ public sealed class ConversationWorkspaceTests
 
         // Assert
         Assert.HasCount(2, result);
+        Assert.AreNotEqual(0L, result[0].Id);
+        Assert.AreEqual("project-b", result[0].Name);
         Assert.AreEqual(secondPath, result[0].WorkDirectory);
         Assert.AreEqual(1, result[0].ConversationCount);
+        Assert.AreNotEqual(0L, result[1].Id);
+        Assert.AreEqual("project-a", result[1].Name);
         Assert.AreEqual(firstPath, result[1].WorkDirectory);
         Assert.AreEqual(2, result[1].ConversationCount);
+
+        var projectBConversations = await repository.ListByProjectIdAsync(result[0].Id);
+        Assert.HasCount(1, projectBConversations);
+
+        await using var projectConnection = await connectionFactory.OpenConnectionAsync();
+        await using var projectCommand = projectConnection.CreateCommand();
+        projectCommand.CommandText = "SELECT COUNT(*) FROM \"Conversations\" WHERE \"ProjectId\" = $projectId;";
+        projectCommand.Parameters.AddWithValue("$projectId", result[1].Id);
+        Assert.AreEqual(2L, Convert.ToInt64(await projectCommand.ExecuteScalarAsync()));
     }
 }

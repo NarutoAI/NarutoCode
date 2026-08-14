@@ -1,5 +1,6 @@
 ﻿using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Infrastructure.AIAgents;
 
@@ -87,11 +88,35 @@ public sealed class MafAgentChatClientHistoryTests
             string workDirectory,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public Task<WorkspaceSummary> GetOrCreateWorkspaceAsync(
+            string workDirectory,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ConversationSummary>> ListByProjectIdAsync(
+            long projectId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<Conversation> CreateForWorkDirectoryAsync(
             string workDirectory,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<Conversation> CreateForProjectIdAsync(
+            long projectId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<Conversation> CreateForProjectIdAsync(
+            long projectId,
+            ConversationSource source,
+            string sourceId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<Conversation> GetOrCreateBySourceAsync(
+            long projectId,
+            ConversationSource source,
+            string sourceId,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<Conversation?> GetByIdAsync(

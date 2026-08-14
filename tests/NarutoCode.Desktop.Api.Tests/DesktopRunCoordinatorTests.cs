@@ -1,5 +1,6 @@
 ﻿using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
+using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Desktop.Api.Runs;
 using NarutoCode.Desktop.Api.Workspaces;
@@ -158,8 +159,13 @@ public sealed class DesktopRunCoordinatorTests
             => Task.FromResult<Conversation?>(new Conversation { Id = conversationId, WorkDirectory = Path.GetTempPath() });
         public Task<Conversation> GetOrCreateByWorkDirectoryAsync(string workDirectory, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ConversationSummary>> ListByWorkDirectoryAsync(string workDirectory, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<WorkspaceSummary> GetOrCreateWorkspaceAsync(string workDirectory, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ConversationSummary>> ListByProjectIdAsync(long projectId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Conversation> CreateForWorkDirectoryAsync(string workDirectory, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Conversation> CreateForProjectIdAsync(long projectId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Conversation> CreateForProjectIdAsync(long projectId, ConversationSource source, string sourceId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Conversation> GetOrCreateBySourceAsync(long projectId, ConversationSource source, string sourceId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<Message>> ListMessagesWithUIAsync(long conversationId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<Message>> ListMessagesAsync(long conversationId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<Message>> ListRuntimeMessagesAsync(long conversationId, CancellationToken ct = default) => throw new NotSupportedException();
@@ -176,13 +182,28 @@ public sealed class DesktopRunCoordinatorTests
         public Task<IReadOnlyList<ConversationSummary>> ListWorkspaceConversationsAsync(string workDirectory, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ConversationSummary>>([]);
 
+        public Task<WorkspaceSummary> GetOrCreateWorkspaceAsync(string workDirectory, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ConversationSummary>> ListProjectConversationsAsync(long projectId, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ConversationSummary>>([]);
+
         public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<WorkspaceSummary>>([]);
 
         public Task<OpenWorkspaceResult> OpenWorkspaceAsync(string workDirectory, CancellationToken ct = default)
             => throw new NotSupportedException();
 
+        public Task<OpenWorkspaceResult> OpenWorkspaceBySourceAsync(string workDirectory, ConversationSource source, string sourceId, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<ConversationSessionId> GetOrCreateSessionIdBySourceAsync(string workDirectory, ConversationSource source, string sourceId, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
         public Task<ConversationHistory> CreateWorkspaceConversationAsync(string workDirectory, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<ConversationHistory> CreateProjectConversationAsync(long projectId, CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public Task<ConversationHistory> LoadConversationHistoryAsync(ConversationSessionId conversationId, CancellationToken ct = default)
