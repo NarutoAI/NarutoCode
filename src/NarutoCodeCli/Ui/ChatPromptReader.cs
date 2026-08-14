@@ -7,7 +7,7 @@ namespace NarutoCodeCli.Ui;
 /// </summary>
 internal static class ChatPromptReader
 {
-    private const string DefaultInputHint = "⏎ send    Ctrl+V 贴图（可多张，Enter 发送）    Tab messages    / commands    Esc interrupt";
+    private const string DefaultInputHint = "⏎ send    Ctrl+V 贴图（可多张，Enter 发送）    Tab messages    / commands    Esc clear    Ctrl+C cancel / exit";
     private const string SlashCommandHint = "commands: /provider [name] · /effort <low|medium|high|xhigh> · /image <path...> [text] · /pi [text] · /exit";
 
     /// <summary>

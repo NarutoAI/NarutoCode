@@ -5,7 +5,7 @@ using Terminal.Gui.Views;
 namespace NarutoCodeCli.Ui;
 
 /// <summary>
-/// 聊天输入框：Enter 键触发提交事件，避免依赖框架默认的 Accept 命令绑定；
+/// 聊天输入框：Enter 键触发提交事件，Esc 清除当前文本草稿，避免依赖框架默认命令绑定；
 /// Ctrl+V 优先尝试图片粘贴（剪贴板含图片时），否则放行默认文本粘贴。
 /// </summary>
 internal sealed class ChatInputField : TextField
@@ -27,6 +27,14 @@ internal sealed class ChatInputField : TextField
         if (key == Key.Enter)
         {
             SubmitPressed?.Invoke();
+            return true;
+        }
+
+        // Esc 仅清除当前文本草稿并消费按键，避免触发 Terminal.Gui 默认 Cancel 行为导致输入焦点失效。
+        // 待发送图片由窗口单独管理，不在此处清除，用户仍可继续输入说明后发送。
+        if (key == Key.Esc)
+        {
+            Text = string.Empty;
             return true;
         }
 
