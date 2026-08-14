@@ -90,4 +90,11 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "配置的 Python 解释器路径不存在：{ConfiguredPath}，将自动探测可用解释器。")]
     public static partial void PythonExecutableConfiguredNotFound(ILogger logger, string configuredPath);
+
+    [LoggerMessage(
+        EventId = 14,
+        Level = LogLevel.Warning,
+        Message = "模型流式请求第 {Attempt} 次尝试传输断连（已产出 {Count} 个内容片段），{DelaySeconds}s 后自动恢复。")]
+    public static partial void StreamingRequestRetrying(
+        ILogger logger, Exception exception, int attempt, int count, double delaySeconds);
 }
