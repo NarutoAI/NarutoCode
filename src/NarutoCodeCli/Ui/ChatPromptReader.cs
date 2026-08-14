@@ -7,6 +7,19 @@ namespace NarutoCodeCli.Ui;
 /// </summary>
 internal static class ChatPromptReader
 {
+    private const string DefaultInputHint = "⏎ send    Ctrl+V 贴图（可多张，Enter 发送）    Tab messages    / commands    Esc interrupt";
+    private const string SlashCommandHint = "commands: /provider [name] · /effort <low|medium|high|xhigh> · /image <path...> [text] · /pi [text] · /exit";
+
+    /// <summary>
+    /// 根据当前输入返回底部提示；仅当首字符为斜杠时展示全部支持的斜杠命令。
+    /// </summary>
+    /// <param name="input">输入框当前文本。</param>
+    /// <returns>应展示在输入框下方的提示文本。</returns>
+    public static string GetInputHint(string? input)
+    {
+        return input?.StartsWith('/') == true ? SlashCommandHint : DefaultInputHint;
+    }
+
     /// <summary>
     /// 判断输入是否为合法工具审批结果。
     /// </summary>

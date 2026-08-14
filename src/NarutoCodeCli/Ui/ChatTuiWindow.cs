@@ -128,6 +128,7 @@ internal sealed class ChatTuiWindow : Window
         inputField.SetScheme(TuiStyles.GetInputScheme());
         inputField.SubmitPressed += OnInputAccepted;
         inputField.PasteImageRequested += OnPasteImageRequested;
+        inputField.TextChanged += (_, _) => RefreshHint();
 
         statusLabel.X = 0;
         statusLabel.Y = Pos.AnchorEnd(2);
@@ -138,12 +139,12 @@ internal sealed class ChatTuiWindow : Window
         hintLabel.Y = Pos.AnchorEnd(1);
         hintLabel.Width = Dim.Fill();
         hintLabel.SetScheme(TuiStyles.GetInputPanelScheme());
-        hintLabel.Text = "⏎ send    Ctrl+V 贴图（可多张，Enter 发送）    Tab messages    / commands    Esc interrupt";
 
         Add(brandLabel, dividerLabel, cwdLabel, messageList, statusLabel, pendingImagesLabel, inputPromptLabel, inputField, hintLabel);
 
         RefreshHeader();
         RefreshStatus();
+        RefreshHint();
     }
 
     /// <summary>
@@ -405,6 +406,15 @@ internal sealed class ChatTuiWindow : Window
         cwdLabel.SetScheme(isOperationRunning
             ? TuiStyles.GetRunningScheme()
             : TuiStyles.GetReadyScheme());
+    }
+
+    /// <summary>
+    /// 刷新输入框下方提示：首字符为斜杠时展示当前支持的命令，否则展示常规快捷键。
+    /// </summary>
+    private void RefreshHint()
+    {
+        hintLabel.Text = ChatPromptReader.GetInputHint(inputField.Text);
+        SetNeedsDraw();
     }
 
     private void RefreshStatus()
