@@ -389,7 +389,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             cancellationToken);
 
         var resultList = new List<Message>();
-        foreach (var item in messages)
+        foreach (var (index,item) in messages.Index())
         {
             var contents = AIContentJsonSerializerContext.DeserializeContents(item.ModelContent);
             var modelContent = string.Empty;
@@ -411,11 +411,22 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                              ToolCall: FunctionCallContent functionCallContentApproval
                          } toolApprovalRequestContent)
                 {
-                    messageType = AgentMessageType.ToolApprovalRequest;
-                    content =
-                        $"{functionCallContentApproval.Name}({string.Join(',', functionCallContentApproval.Arguments ?? new Dictionary<string, object?>())})";
-                    modelContent =
-                        AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(toolApprovalRequestContent);
+                 
+                    // content =
+                    //     $"{functionCallContentApproval.Name}({string.Join(',', functionCallContentApproval.Arguments ?? new Dictionary<string, object?>())})";
+                    content =functionCallContentApproval.Name;
+                    //判断下 如果不是最后一行的话，就不需要设置modelcontent字段
+                    if (index == messages.Count - 1)
+                    {
+                        messageType = AgentMessageType.ToolApprovalRequest;
+                        modelContent =
+                            AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(
+                                toolApprovalRequestContent);
+                    }
+                    else
+                    {
+                        messageType = AgentMessageType.ToolCall;
+                    }
                 }
                 else if (itemContent is TextReasoningContent textReasoningContent)
                 {
