@@ -4,23 +4,21 @@ using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
+using Terminal.Gui.App;
 
 namespace NarutoCodeCli.Ui;
 
 /// <summary>
-/// TUI 聊天应用入口，负责协调输入读取、会话状态和模型流式输出。
+/// TUI 聊天应用入口：负责启动 Terminal.Gui、协调会话入口、会话状态与模型流式输出。
+/// 业务逻辑运行在后台线程，所有界面更新通过 app.Invoke 调度到 UI 线程；
+/// 消息区滚动位置由消息视图自身维护，任务完成不再整屏重绘。
 /// </summary>
 internal sealed class TuiChatApplication(
     IConversationService conversationService,
-    ChatPromptReader promptReader,
-    ChatScreenRenderer screenRenderer,
     IClipboardImageStore clipboardImageStore,
     IWorkspaceContextAccessor workspaceContextAccessor,
     ChatCancellationCoordinator cancellationCoordinator,
     PendingUserMessageQueue pendingUserMessageQueue,
-    QueuedChatInputReader queuedInputReader,
-    SessionLauncherRenderer sessionLauncherRenderer,
-    SessionLauncherPromptReader sessionLauncherPromptReader,
     ILlmSettingsService llmSettingsService)
 {
     private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -37,118 +35,419 @@ internal sealed class TuiChatApplication(
     private long projectId;
 
     /// <summary>
-    /// 运行 TUI 主循环，直到用户退出或收到取消请求。
+    /// 运行 TUI 主流程（同步阻塞；调用线程承担 Terminal.Gui 的 Init/Run/Shutdown 生命周期）。
+    /// 标准输入或输出被重定向时自动降级为非交互模式。
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>
-    public async Task RunAsync(CancellationToken cancellationToken)
+    public void Run(CancellationToken cancellationToken)
     {
-        var launcherResult = await SelectConversationAsync(cancellationToken);
-        if (launcherResult.ShouldExit)
+        if (Console.IsInputRedirected || Console.IsOutputRedirected)
+        {
+            RunRedirectedAsync(cancellationToken).GetAwaiter().GetResult();
+            return;
+        }
+
+        // 会话入口阶段：独立 IApplication 实例。
+        // 注意：Terminal.Gui 2.4 同一实例第二次 Run 时新窗口只设置标题、不绘制内容（实测确认），
+        // 因此 launcher 与 chat 必须各用一个 Application.Create().Init() 实例。
+        var selection = RunLauncherStage(cancellationToken);
+        if (selection is null || selection.ShouldExit)
         {
             return;
         }
 
-        await LoadHistoryAsync(launcherResult, cancellationToken);
-        screenRenderer.Render(sessionState);
+        // 加载历史会话到会话状态（终端处于普通模式，不遮挡加载过程）
+        var history = LoadHistory(selection, cancellationToken);
+        sessionId = history.SessionId;
+        sessionState.LoadHistory(history);
+
+        // 聊天阶段：独立 IApplication 实例
+        RunChatStage(cancellationToken);
+    }
+
+    /// <summary>
+    /// 运行会话入口窗口（独立 TUI 会话），返回用户选择；取消时返回 <see langword="null" />。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>会话入口选择结果，或取消标记。</returns>
+    private SessionLauncherResult? RunLauncherStage(CancellationToken cancellationToken)
+    {
+        using var app = Application.Create();
+        app.AppModel = AppModel.FullScreen;
+        app.Init();
+        // Terminal.Gui 默认用 CSI 18t 查询终端尺寸；macOS Terminal.app 等终端不响应该查询，
+        // 框架会认为尺寸为 0 导致整屏空白。这里用 .NET 原生尺寸（ioctl）兜底。
+        EnsureDriverScreenSize(app);
+
+        var launcherData = LoadLauncherData(cancellationToken);
+        if (launcherData is null)
+        {
+            return null;
+        }
+
+        var launcherWindow = new SessionLauncherWindow(app, launcherData.Value.WorkDirectory, launcherData.Value.Conversations);
+        app.Run(launcherWindow);
+        launcherWindow.Dispose();
+        return launcherWindow.SelectionResult;
+    }
+
+    /// <summary>
+    /// 运行聊天主窗口（独立 TUI 会话）：后台线程执行业务循环，当前线程承担 UI 泵。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private void RunChatStage(CancellationToken cancellationToken)
+    {
+        using var app = Application.Create();
+        app.AppModel = AppModel.FullScreen;
+        app.Init();
+        EnsureDriverScreenSize(app);
+
+        var chatWindow = new ChatTuiWindow(app, workspaceContextAccessor, pendingUserMessageQueue, cancellationCoordinator, clipboardImageStore, llmSettingsService);
+        var businessTask = Task.Run(() => RunChatLoopAsync(app, chatWindow, cancellationToken));
+        try
+        {
+            app.Run(chatWindow);
+        }
+        finally
+        {
+            chatWindow.Dispose();
+        }
+
+        businessTask.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// 聊天业务主循环：读取输入（窗口 TCS 桥接）→ 处理 → 流式输出，直到退出。
+    /// </summary>
+    /// <param name="app">Terminal.Gui 应用实例（用于 UI 线程调度）。</param>
+    /// <param name="chatWindow">聊天窗口。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private async Task RunChatLoopAsync(IApplication app, ChatTuiWindow chatWindow, CancellationToken cancellationToken)
+    {
+        var exitRequested = false;
+        chatWindow.ExitRequested += () => exitRequested = true;
+
+        try
+        {
+            Action refreshUi = () => InvokeUi(app, () => chatWindow.UpdateState(sessionState));
+            refreshUi();
+
+            while (!cancellationToken.IsCancellationRequested && !exitRequested)
+            {
+                var requiresToolApproval = sessionState.IsToolApprovalPending;
+                var input = !requiresToolApproval && pendingUserMessageQueue.TryDrain(out var queuedInput)
+                    ? queuedInput
+                    : await chatWindow.ReadInputAsync(cancellationToken);
+
+                if (input is null)
+                {
+                    break;
+                }
+
+                var shouldContinue = await HandleInputAsync(input, requiresToolApproval, refreshUi, cancellationToken);
+                if (!shouldContinue)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            // 业务结束（含异常）时请求 UI 泵退出；用户主动退出时窗口已自行停止
+            if (!exitRequested)
+            {
+                app.Invoke(() => app.RequestStop(chatWindow));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 处理一条用户输入（命令解析、消息发送与流式输出）；返回 <see langword="false" /> 表示需要退出。
+    /// </summary>
+    /// <param name="input">用户输入。</param>
+    /// <param name="requiresToolApproval">是否正在等待工具审批。</param>
+    /// <param name="refreshUi">状态变化后的界面刷新回调。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>继续运行时返回 <see langword="true" />。</returns>
+    private async Task<bool> HandleInputAsync(
+        string input,
+        bool requiresToolApproval,
+        Action refreshUi,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            refreshUi();
+            return true;
+        }
+
+        if (requiresToolApproval && !ChatPromptReader.IsToolApprovalResponse(input))
+        {
+            refreshUi();
+            return true;
+        }
+
+        if (!requiresToolApproval && IsExitCommand(input))
+        {
+            return false;
+        }
+
+        if (!requiresToolApproval && IsProviderCommand(input))
+        {
+            HandleProviderCommand(input);
+            refreshUi();
+            return true;
+        }
+
+        if (!requiresToolApproval && IsEffortCommand(input))
+        {
+            HandleEffortCommand(input);
+            refreshUi();
+            return true;
+        }
+
+        if (!TryCreateOutgoingMessage(input, requiresToolApproval, out var outgoingMessage, out var displayContent,
+                out var error))
+        {
+            var errorMessage = ChatMessage.CreateAssistant();
+            errorMessage.Append(new AgentMessage(AgentMessageType.Error, error));
+            sessionState.AddMessage(errorMessage);
+            refreshUi();
+            return true;
+        }
+
+        sessionState.AddMessage(ChatMessage.CreateUser(displayContent));
+        var assistantMessage = ChatMessage.CreateAssistant();
+        sessionState.AddMessage(assistantMessage);
+
+        using var operationCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cancellationCoordinator.RegisterOperation(operationCancellationTokenSource);
+        sessionState.MarkOperationRunning();
+        refreshUi();
+
+        try
+        {
+            var hasError = await StreamAssistantMessageAsync(
+                outgoingMessage,
+                assistantMessage,
+                refreshUi,
+                operationCancellationTokenSource.Token);
+            if (outgoingMessage.Type == AgentMessageType.ToolApprovalResponse && !hasError)
+            {
+                sessionState.CompleteToolApproval(outgoingMessage.ToolApprovalContent);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (OperationCanceledException) when (operationCancellationTokenSource.IsCancellationRequested)
+        {
+            await conversationService.ResetRuntimeSessionAsync(sessionId, CancellationToken.None);
+            assistantMessage.Append(new AgentMessage(AgentMessageType.Error, "当前操作已取消。"));
+        }
+        finally
+        {
+            sessionState.MarkOperationCompleted();
+            cancellationCoordinator.ClearOperation(operationCancellationTokenSource);
+            refreshUi();
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 流式接收模型输出并逐段刷新界面。
+    /// </summary>
+    /// <param name="outgoingMessage">发送给 Agent 的消息。</param>
+    /// <param name="assistantMessage">助手消息视图模型。</param>
+    /// <param name="refreshUi">界面刷新回调。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>是否产生过错误消息。</returns>
+    private async Task<bool> StreamAssistantMessageAsync(
+        AgentMessage outgoingMessage,
+        ChatMessage assistantMessage,
+        Action refreshUi,
+        CancellationToken cancellationToken)
+    {
+        var hasError = false;
+
+        await foreach (var chunk in conversationService.SendMessageAsync(sessionId, outgoingMessage, cancellationToken))
+        {
+            assistantMessage.Append(chunk);
+
+            if (chunk.Type == AgentMessageType.ToolApprovalRequest)
+            {
+                sessionState.MarkToolApprovalPending(chunk);
+            }
+
+            if (chunk.Type == AgentMessageType.Error)
+            {
+                hasError = true;
+            }
+
+            refreshUi();
+        }
+
+        return hasError;
+    }
+
+    /// <summary>
+    /// 将界面更新调度到 UI 线程并等待其完成，避免 UI 线程读取会话状态时与业务线程写入并发。
+    /// </summary>
+    /// <param name="app">Terminal.Gui 应用实例。</param>
+    /// <param name="action">需要在 UI 线程执行的动作。</param>
+    private static void InvokeUi(IApplication app, Action action)
+    {
+        using var completed = new ManualResetEventSlim();
+        app.Invoke(() =>
+        {
+            try
+            {
+                action();
+            }
+            finally
+            {
+                completed.Set();
+            }
+        });
+        completed.Wait();
+    }
+
+    /// <summary>
+    /// 兜底设置终端尺寸：当 Terminal.Gui 的 CSI 18t 尺寸查询未被终端响应（如 macOS Terminal.app）
+    /// 导致 Driver.Cols/Rows 为 0 时，用 .NET 原生终端尺寸（基于 ioctl）恢复屏幕大小，避免整屏空白。
+    /// </summary>
+    /// <param name="app">Terminal.Gui 应用实例。</param>
+    private static void EnsureDriverScreenSize(IApplication app)
+    {
+        var driver = app.Driver;
+        if (driver is null || (driver.Cols > 0 && driver.Rows > 0))
+        {
+            return;
+        }
+
+        int width;
+        int height;
+        try
+        {
+            width = Console.WindowWidth;
+            height = Console.WindowHeight;
+        }
+        catch (IOException)
+        {
+            // 极少数终端不支持查询窗口尺寸时回退到 80x25
+            width = 80;
+            height = 25;
+        }
+
+        // SetScreenSize 定义在 internal DriverImpl 上（公开 virtual 方法），反射调用以重建输出缓冲并广播尺寸变化
+        var setScreenSize = driver.GetType().GetMethod("SetScreenSize", [typeof(int), typeof(int)]);
+        setScreenSize?.Invoke(driver, [width, height]);
+    }
+
+    /// <summary>
+    /// 非交互降级模式：标准输入逐行读取，输出以纯文本打印。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    private async Task RunRedirectedAsync(CancellationToken cancellationToken)
+    {
+        var launcherData = LoadLauncherData(cancellationToken);
+        if (launcherData is null)
+        {
+            return;
+        }
+
+        // 重定向场景无法交互选择，默认继续最近会话；没有历史则新建
+        var selection = launcherData.Value.Conversations.Count == 0
+            ? SessionLauncherResult.NewConversation()
+            : SessionLauncherResult.Existing(new ConversationSessionId(launcherData.Value.Conversations[0].Id));
+        var history = LoadHistory(selection, cancellationToken);
+        sessionId = history.SessionId;
+        sessionState.LoadHistory(history);
+
+        var printedMessageCount = 0;
+        void PrintNewAssistantMessages()
+        {
+            var messages = sessionState.Messages;
+            for (var index = printedMessageCount; index < messages.Count; index++)
+            {
+                if (messages[index].Role == ChatRole.Assistant)
+                {
+                    Console.WriteLine(messages[index].Content);
+                }
+            }
+
+            printedMessageCount = messages.Count;
+        }
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var requiresToolApproval = sessionState.IsToolApprovalPending;
-            var input = !requiresToolApproval && pendingUserMessageQueue.TryDrain(out var queuedInput)
-                ? queuedInput
-                : await promptReader.ReadAsync(requiresToolApproval);
-
+            var input = Console.ReadLine();
             if (input is null)
             {
                 break;
             }
 
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                screenRenderer.Render(sessionState);
-                continue;
-            }
-
-            if (requiresToolApproval && !ChatPromptReader.IsToolApprovalResponse(input))
-            {
-                screenRenderer.Render(sessionState);
-                continue;
-            }
-
-            if (!requiresToolApproval && IsExitCommand(input))
+            var requiresToolApproval = sessionState.IsToolApprovalPending;
+            var shouldContinue = await HandleInputAsync(input, requiresToolApproval, PrintNewAssistantMessages, cancellationToken);
+            if (!shouldContinue)
             {
                 break;
-            }
-            //处理供应商切换
-            if (!requiresToolApproval && IsProviderCommand(input))
-            {
-                HandleProviderCommand(input);
-                screenRenderer.Render(sessionState);
-                continue;
-            }
-
-            if (!requiresToolApproval && IsEffortCommand(input))
-            {
-                HandleEffortCommand(input);
-                screenRenderer.Render(sessionState);
-                continue;
-            }
-
-            if (!TryCreateOutgoingMessage(input, requiresToolApproval, out var outgoingMessage, out var displayContent,
-                    out var error))
-            {
-                var errorMessage = ChatMessage.CreateAssistant();
-                errorMessage.Append(new AgentMessage(AgentMessageType.Error, error));
-                sessionState.AddMessage(errorMessage);
-                screenRenderer.Render(sessionState);
-                continue;
-            }
-
-            sessionState.AddMessage(ChatMessage.CreateUser(displayContent));
-            var assistantMessage = ChatMessage.CreateAssistant();
-            sessionState.AddMessage(assistantMessage);
-
-            using var operationCancellationTokenSource =
-                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cancellationCoordinator.RegisterOperation(operationCancellationTokenSource);
-            sessionState.MarkOperationRunning();
-
-            try
-            {
-                var hasError = await StreamAssistantMessageAsync(
-                    outgoingMessage,
-                    assistantMessage,
-                    operationCancellationTokenSource.Token);
-                if (outgoingMessage.Type == AgentMessageType.ToolApprovalResponse && !hasError)
-                {
-                    sessionState.CompleteToolApproval(outgoingMessage.ToolApprovalContent);
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (OperationCanceledException) when (operationCancellationTokenSource.IsCancellationRequested)
-            {
-                await conversationService.ResetRuntimeSessionAsync(sessionId, CancellationToken.None);
-                assistantMessage.Append(new AgentMessage(AgentMessageType.Error, "当前操作已取消。"));
-                sessionState.MarkOperationCompleted();
-                pendingUserMessageQueue.UpdateDraft(string.Empty);
-                screenRenderer.Render(sessionState);
-            }
-            finally
-            {
-                sessionState.MarkOperationCompleted();
-                cancellationCoordinator.ClearOperation(operationCancellationTokenSource);
             }
         }
     }
 
+    /// <summary>
+    /// 加载会话入口数据（工作区与会话摘要）。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>入口页数据；取消时返回 <see langword="null" />。</returns>
+    private (string WorkDirectory, IReadOnlyList<ConversationSummary> Conversations)? LoadLauncherData(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var workDirectory = workspaceContextAccessor.Current.WorkingDirectory;
+            var workspace = RunSync(() => conversationService.GetOrCreateWorkspaceAsync(workDirectory, cancellationToken));
+            projectId = workspace.Id;
+            var conversations = RunSync(() => conversationService.ListProjectConversationsAsync(projectId, cancellationToken));
+            return (workspace.WorkDirectory, conversations);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
-    /// 
+    /// 按入口选择加载会话历史。
     /// </summary>
-    /// <param name="input"></param>
+    /// <param name="selection">会话入口选择结果。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>会话历史。</returns>
+    private ConversationHistory LoadHistory(SessionLauncherResult selection, CancellationToken cancellationToken)
+    {
+        return RunSync(() => selection switch
+        {
+            { CreateNew: true } => conversationService.CreateProjectConversationAsync(projectId, cancellationToken),
+            { ConversationId: { } conversationId } => conversationService.LoadConversationHistoryAsync(
+                conversationId,
+                cancellationToken),
+            _ => conversationService.LoadWorkspaceHistoryAsync(
+                workspaceContextAccessor.Current.WorkingDirectory,
+                cancellationToken)
+        });
+    }
+
+    /// <summary>
+    /// 同步等待异步任务完成（无同步上下文时直接解包结果）。
+    /// </summary>
+    private static T RunSync<T>(Func<Task<T>> factory)
+    {
+        return factory().GetAwaiter().GetResult();
+    }
+
     private void HandleProviderCommand(string input)
     {
         var arguments = ChatPromptReader.SplitArguments(input);
@@ -258,180 +557,6 @@ internal sealed class TuiChatApplication(
                || input.StartsWith("/effort ", StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<SessionLauncherResult> SelectConversationAsync(CancellationToken cancellationToken)
-    {
-        var workDirectory = workspaceContextAccessor.Current.WorkingDirectory;
-        var workspace = await conversationService.GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
-        projectId = workspace.Id;
-        var conversations = await conversationService.ListProjectConversationsAsync(projectId, cancellationToken);
-        var state = new SessionLauncherState(workspace.WorkDirectory, conversations);
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            sessionLauncherRenderer.Render(state);
-            var key = await sessionLauncherPromptReader.ReadKeyAsync(cancellationToken);
-            if (state.IsHistoryMode)
-            {
-                var historyResult = HandleHistoryKey(state, key);
-                if (historyResult is not null)
-                {
-                    return historyResult;
-                }
-
-                continue;
-            }
-
-            var hubResult = HandleHubKey(state, key);
-            if (hubResult is not null)
-            {
-                return hubResult;
-            }
-        }
-
-        return SessionLauncherResult.Exit();
-    }
-
-    private static SessionLauncherResult? HandleHubKey(SessionLauncherState state, ConsoleKeyInfo key)
-    {
-        switch (key.Key)
-        {
-            case ConsoleKey.UpArrow:
-                state.MoveHubSelection(-1);
-                return null;
-            case ConsoleKey.DownArrow:
-                state.MoveHubSelection(1);
-                return null;
-            case ConsoleKey.Escape:
-                return SessionLauncherResult.Exit();
-            case ConsoleKey.Enter:
-                return state.SelectedHubOption switch
-                {
-                    SessionLauncherOption.ContinueRecent => state.RecentConversation is null
-                        ? SessionLauncherResult.NewConversation()
-                        : SessionLauncherResult.Existing(new ConversationSessionId(state.RecentConversation.Id)),
-                    SessionLauncherOption.ViewHistory => EnterHistoryOrCreate(state),
-                    SessionLauncherOption.NewConversation => SessionLauncherResult.NewConversation(),
-                    _ => SessionLauncherResult.Exit()
-                };
-            default:
-                return null;
-        }
-    }
-
-    private static SessionLauncherResult? HandleHistoryKey(SessionLauncherState state, ConsoleKeyInfo key)
-    {
-        switch (key.Key)
-        {
-            case ConsoleKey.UpArrow:
-                state.MoveHistorySelection(-1);
-                return null;
-            case ConsoleKey.DownArrow:
-                state.MoveHistorySelection(1);
-                return null;
-            case ConsoleKey.Escape:
-                state.ReturnToHub();
-                return null;
-            case ConsoleKey.N:
-                return SessionLauncherResult.NewConversation();
-            case ConsoleKey.Enter when state.Conversations.Count > 0:
-                return SessionLauncherResult.Existing(
-                    new ConversationSessionId(state.Conversations[state.SelectedHistoryIndex].Id));
-            default:
-                return null;
-        }
-    }
-
-    private static SessionLauncherResult? EnterHistoryOrCreate(SessionLauncherState state)
-    {
-        if (state.Conversations.Count == 0)
-        {
-            return SessionLauncherResult.NewConversation();
-        }
-
-        state.EnterHistoryMode();
-        return null;
-    }
-
-    private async Task LoadHistoryAsync(SessionLauncherResult launcherResult, CancellationToken cancellationToken)
-    {
-        var history = launcherResult switch
-        {
-            { CreateNew: true } => await conversationService.CreateProjectConversationAsync(
-                projectId,
-                cancellationToken),
-            { ConversationId: { } conversationId } => await conversationService.LoadConversationHistoryAsync(
-                conversationId,
-                cancellationToken),
-            _ => await conversationService.LoadWorkspaceHistoryAsync(
-                workspaceContextAccessor.Current.WorkingDirectory,
-                cancellationToken)
-        };
-
-        sessionId = history.SessionId;
-        sessionState.LoadHistory(history);
-    }
-
-    private async Task<bool> StreamAssistantMessageAsync(
-        AgentMessage outgoingMessage,
-        ChatMessage assistantMessage,
-        CancellationToken cancellationToken)
-    {
-        var hasError = false;
-        var canCaptureQueuedInput = outgoingMessage.Type != AgentMessageType.ToolApprovalResponse;
-        using var captureCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task? captureTask = null;
-
-        await screenRenderer.RenderLiveAsync(
-            sessionState,
-            async refresh =>
-            {
-                if (canCaptureQueuedInput)
-                {
-                    captureTask = queuedInputReader.CaptureAsync(refresh, captureCancellationTokenSource.Token);
-                }
-
-                try
-                {
-                    await foreach (var chunk in conversationService.SendMessageAsync(sessionId, outgoingMessage,
-                                       cancellationToken))
-                    {
-                        assistantMessage.Append(chunk);
-
-                        if (chunk.Type == AgentMessageType.ToolApprovalRequest)
-                        {
-                            sessionState.MarkToolApprovalPending(chunk);
-                            await captureCancellationTokenSource.CancelAsync();
-                            pendingUserMessageQueue.UpdateDraft(string.Empty);
-                        }
-
-                        if (chunk.Type == AgentMessageType.Error)
-                        {
-                            hasError = true;
-                        }
-
-                        refresh();
-                    }
-
-                    refresh();
-                }
-                finally
-                {
-                    await captureCancellationTokenSource.CancelAsync();
-                    if (captureTask is not null)
-                    {
-                        await captureTask.ConfigureAwait(false);
-                    }
-
-                    pendingUserMessageQueue.UpdateDraft(string.Empty);
-                    sessionState.MarkOperationCompleted();
-                    refresh();
-                }
-            },
-            cancellationToken);
-
-        return hasError;
-    }
-
     private bool TryCreateOutgoingMessage(
         string input,
         bool requiresToolApproval,
@@ -454,6 +579,16 @@ internal sealed class TuiChatApplication(
             displayContent = input;
             error = string.Empty;
             return true;
+        }
+
+        // 当前模型不支持视觉时拒绝图片消息：图片会被后端过滤，发送后模型也看不到，
+        // 直接在此拦截并提示用户切换支持视觉的模型，避免白保存/白发送。
+        if (!llmSettingsService.CurrentLlm.SupportsVision)
+        {
+            message = default;
+            displayContent = string.Empty;
+            error = "当前模型不支持图片输入（SupportsVision=false），请使用 /provider 切换支持视觉的模型。";
+            return false;
         }
 
         var arguments = ChatPromptReader.SplitArguments(imageInput);

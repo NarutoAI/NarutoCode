@@ -25,7 +25,7 @@
 
     <ItemGroup>
    
-      <PackageReference Include="Spectre.Console" />
+      <PackageReference Include="Terminal.Gui" />
     </ItemGroup>
 
     <ItemGroup>

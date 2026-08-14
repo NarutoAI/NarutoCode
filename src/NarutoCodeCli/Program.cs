@@ -1,79 +1,83 @@
-﻿using System.Runtime.InteropServices;
-using System.Text;
+﻿using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure;
 using NarutoCodeCli.Ui;
 using NarutoCodeCli.Workspaces;
-using Spectre.Console;
 
-ConfigureAnsiConsole();
+ConfigureConsoleEncoding();
 
 using var cancellationTokenSource = new CancellationTokenSource();
 var chatCancellationCoordinator = new ChatCancellationCoordinator();
-Console.CancelKeyPress += (_, eventArgs) =>
-{
-    eventArgs.Cancel = true;
-    if (!chatCancellationCoordinator.TryCancelCurrentOperation())
-    {
-        cancellationTokenSource.Cancel();
-    }
-};
 
-var workspacePath = args.FirstOrDefault() ?? Environment.CurrentDirectory;
-var workspaceContext = new WorkspaceContext(workspacePath);
-var services = new ServiceCollection();
-services.AddSingleton<IWorkspaceContextAccessor>(new CliWorkspaceContextAccessor(workspaceContext));
-try
+// 所有异步初始化放到后台任务，主线程专职承担 Terminal.Gui 的 Init/Run/Shutdown 生命周期
+var initializationTask = Task.Run(() =>
+    InitializeServicesAsync(chatCancellationCoordinator, args, cancellationTokenSource.Token));
+var initialization = initializationTask.GetAwaiter().GetResult();
+var application = initialization.Application;
+if (application is null)
 {
-    await services.AddInfrastructure();
-}
-catch (Exception e)
-{
-    AnsiConsole.WriteLine(e.Message);
+    Console.WriteLine(initialization.Error);
     Console.ReadKey();
     return;
 }
 
-services.AddSingleton(chatCancellationCoordinator);
-if (OperatingSystem.IsMacOS())
+Console.CancelKeyPress += (_, eventArgs) =>
 {
-    services.AddSingleton<IClipboardImageStore, MacOsClipboardImageStore>();
+    eventArgs.Cancel = true;
+    // 全屏 TUI 下 Ctrl+C 由聊天窗口按键处理；这里作为非交互/兜底路径的退出信号
+    cancellationTokenSource.Cancel();
+};
+
+try
+{
+    application.Run(cancellationTokenSource.Token);
 }
-else
+finally
 {
-    services.AddSingleton<IClipboardImageStore, NullClipboardImageStore>();
+    // 容器内含仅实现 IAsyncDisposable 的服务（如 AgentFactory），必须异步释放；
+    // 走到此处时 Application 已确认非空，Provider 必然同生共死
+    initialization.Provider!.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }
 
-services.AddSingleton<PendingUserMessageQueue>();
-services.AddSingleton<QueuedChatInputReader>();
-services.AddSingleton<ChatPromptReader>();
-services.AddSingleton<ChatScreenRenderer>();
-services.AddSingleton<SessionLauncherRenderer>();
-services.AddSingleton<SessionLauncherPromptReader>();
-services.AddSingleton<TuiChatApplication>();
+return;
 
-await using var serviceProvider = services.BuildServiceProvider();
-await serviceProvider.BuildAsync();
-var application = serviceProvider.GetRequiredService<TuiChatApplication>();
-await application.RunAsync(cancellationTokenSource.Token);
-
-static void ConfigureAnsiConsole()
+static async Task<InitializationResult> InitializeServicesAsync(
+    ChatCancellationCoordinator chatCancellationCoordinator,
+    string[] args,
+    CancellationToken cancellationToken)
 {
-    ConfigureConsoleEncoding();
-
-    if (Console.IsOutputRedirected)
+    var workspacePath = args.FirstOrDefault() ?? Environment.CurrentDirectory;
+    var workspaceContext = new WorkspaceContext(workspacePath);
+    var services = new ServiceCollection();
+    services.AddSingleton<IWorkspaceContextAccessor>(new CliWorkspaceContextAccessor(workspaceContext));
+    try
     {
-        return;
+        await services.AddInfrastructure();
+    }
+    catch (Exception e)
+    {
+        return new InitializationResult(e.Message, null, null);
     }
 
-    var isAnsiSupported = !OperatingSystem.IsWindows() || TryEnableWindowsVirtualTerminalProcessing();
-    AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+    services.AddSingleton(chatCancellationCoordinator);
+    if (OperatingSystem.IsMacOS())
     {
-        Ansi = isAnsiSupported ? AnsiSupport.Yes : AnsiSupport.No,
-        ColorSystem = isAnsiSupported ? ColorSystemSupport.TrueColor : ColorSystemSupport.NoColors
-    });
+        services.AddSingleton<IClipboardImageStore, MacOsClipboardImageStore>();
+    }
+    else
+    {
+        services.AddSingleton<IClipboardImageStore, NullClipboardImageStore>();
+    }
+
+    services.AddSingleton<PendingUserMessageQueue>();
+    services.AddSingleton<TuiChatApplication>();
+
+    var serviceProvider = services.BuildServiceProvider();
+    await serviceProvider.BuildAsync();
+    var application = serviceProvider.GetRequiredService<TuiChatApplication>();
+    return new InitializationResult(null, application, serviceProvider);
 }
 
 static void ConfigureConsoleEncoding()
@@ -91,55 +95,10 @@ static void ConfigureConsoleEncoding()
     }
 }
 
-static bool TryEnableWindowsVirtualTerminalProcessing()
-{
-    const int standardOutputHandle = -11;
-    const int enableVirtualTerminalProcessing = 0x0004;
-
-    var consoleHandle = WindowsConsoleNative.GetStdHandle(standardOutputHandle);
-    if (consoleHandle == IntPtr.Zero || consoleHandle == new IntPtr(-1))
-    {
-        return false;
-    }
-
-    if (!WindowsConsoleNative.GetConsoleMode(consoleHandle, out var consoleMode))
-    {
-        return false;
-    }
-
-    return WindowsConsoleNative.SetConsoleMode(consoleHandle, consoleMode | enableVirtualTerminalProcessing);
-}
-
 /// <summary>
-/// Provides the minimal Windows console APIs required to enable ANSI escape sequence processing in legacy cmd hosts.
+/// 应用初始化结果；包含失败信息或可直接运行的 TUI 应用与容器。
 /// </summary>
-internal static class WindowsConsoleNative
-{
-    /// <summary>
-    /// Gets the native handle for a standard console stream.
-    /// </summary>
-    /// <param name="standardHandle">The standard stream identifier.</param>
-    /// <returns>The native console handle.</returns>
-    [DllImport("kernel32.dll", SetLastError = true)]
-    internal static extern IntPtr GetStdHandle(int standardHandle);
-
-    /// <summary>
-    /// Gets the current mode flags for a console handle.
-    /// </summary>
-    /// <param name="consoleHandle">The native console handle.</param>
-    /// <param name="mode">The current console mode flags.</param>
-    /// <returns><see langword="true" /> when the mode is read successfully.</returns>
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool GetConsoleMode(IntPtr consoleHandle, out int mode);
-
-    /// <summary>
-    /// Sets the mode flags for a console handle.
-    /// </summary>
-    /// <param name="consoleHandle">The native console handle.</param>
-    /// <param name="mode">The requested console mode flags.</param>
-    /// <returns><see langword="true" /> when the mode is applied successfully.</returns>
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetConsoleMode(IntPtr consoleHandle, int mode);
-}
+/// <param name="Error">初始化失败信息；成功时为 <see langword="null" />。</param>
+/// <param name="Application">初始化成功的 TUI 应用。</param>
+/// <param name="Provider">服务容器，应用运行期间必须保持存活。</param>
+internal sealed record InitializationResult(string? Error, TuiChatApplication? Application, ServiceProvider? Provider);
