@@ -181,13 +181,21 @@ describe('App', () => {
 
     fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '第二条任务' } })
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
-    expect(await screen.findByText('排队消息（1）')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '第三条任务' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    expect(await screen.findByText('排队消息（2）')).toBeInTheDocument()
     expect(screen.getByText('第二条任务')).toBeInTheDocument()
+    expect(screen.getByText('第三条任务')).toBeInTheDocument()
     expect(api.startRun).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '取消排队消息 1' }))
+    expect(screen.queryByText('第二条任务')).not.toBeInTheDocument()
+    expect(screen.getByText('第三条任务')).toBeInTheDocument()
+    expect(screen.getByText('排队消息（1）')).toBeInTheDocument()
 
     act(() => listeners.get('run-1')?.({ runId: 'run-1', sequence: 1, eventType: 'run.completed', content: null, approvalId: null }))
     await waitFor(() => expect(api.startRun).toHaveBeenNthCalledWith(2, {
-      conversationId: 'conversation-1', content: '第二条任务', attachments: [],
+      conversationId: 'conversation-1', content: '第三条任务', attachments: [],
     }))
     expect(screen.queryByText('排队消息（1）')).not.toBeInTheDocument()
   })

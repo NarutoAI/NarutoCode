@@ -446,6 +446,15 @@ export function App() {
 
     void startRunForMessage(conversationId, message)
   }
+  /** 从当前会话的待发送 FIFO 队列中移除指定消息，不影响正在执行的 Run。 */
+  const cancelQueuedMessage = (index: number) => {
+    if (!selectedConversation) return
+
+    updateRuntime(selectedConversation.id, runtime => ({
+      ...runtime,
+      queuedMessages: runtime.queuedMessages.filter((_, queuedIndex) => queuedIndex !== index),
+    }))
+  }
   /** 取消 Run；后端已回收 Run 时，同步清理本地运行状态。 */
   const cancelRun = async () => {
     if (!selectedConversation || !currentRuntime.activeRun) return
@@ -526,7 +535,7 @@ export function App() {
           return <article key={key} className="message assistant"><div className="message-avatar"><Sparkle size={15} weight="fill" /></div><div className="message-body"><div className="message-meta">NarutoCode</div><MarkdownContent content={message.content} /></div></article>
         })}
         {currentRuntime.blocks.map(block => block.kind === 'assistant' ? <article key={block.id} className="message assistant"><div className="message-avatar"><Sparkle size={15} weight="fill" /></div><div className="message-body"><div className="message-meta">NarutoCode <span className="live-indicator">正在回复</span></div><MarkdownContent content={block.content} /></div></article> : <ActivityBlock block={block} key={block.id} />)}
-        {currentRuntime.queuedMessages.length > 0 && <section className="queued-messages" aria-label="排队消息"><strong>排队消息（{currentRuntime.queuedMessages.length}）</strong>{currentRuntime.queuedMessages.map((message, index) => <div className="queued-message" key={message.createdAt}><span>{index + 1}</span><p>{message.content}</p></div>)}</section>}
+        {currentRuntime.queuedMessages.length > 0 && <section className="queued-messages" aria-label="排队消息"><strong>排队消息（{currentRuntime.queuedMessages.length}）</strong>{currentRuntime.queuedMessages.map((message, index) => <div className="queued-message" key={message.createdAt}><span>{index + 1}</span><p>{message.content}</p><button className="queued-message-cancel" type="button" aria-label={`取消排队消息 ${index + 1}`} onClick={() => cancelQueuedMessage(index)}>取消</button></div>)}</section>}
         {(currentRuntime.activeRun || currentRuntime.isStartingRun) && currentRuntime.blocks.length === 0 && <div className="waiting-run"><span /><span /><span />正在启动任务</div>}
         <div ref={messageEnd} /></>}</div></section>
       <Composer conversationId={selectedConversation?.id ?? null} disabled={!selectedConversation} attachments={attachments} isRunning={!!currentRuntime.activeRun || currentRuntime.isStartingRun} queuedMessageCount={currentRuntime.queuedMessages.length} approvalPending={!!currentRuntime.approval} onSend={send} onAddImages={async () => setAttachments(await window.narutoCode.selectImages())} onPasteImage={pasteClipboardImage} onCancel={() => void cancelRun()} onRemoveAttachment={path => setAttachments(current => current.filter(item => item.path !== path))} onResolveApproval={approved => void resolveApproval(approved)} />
