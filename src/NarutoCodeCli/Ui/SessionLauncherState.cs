@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Conversations;
+﻿using NarutoCode.Domain.Conversations;
 
 namespace NarutoCodeCli.Ui;
 
@@ -47,6 +47,11 @@ internal sealed class SessionLauncherState
     public int SelectedHistoryIndex { get; private set; }
 
     /// <summary>
+    /// 历史列表当前视窗的起始会话索引。
+    /// </summary>
+    public int HistoryStartIndex { get; private set; }
+
+    /// <summary>
     /// 当前最近会话。
     /// </summary>
     public ConversationSummary? RecentConversation => Conversations.Count == 0 ? null : Conversations[0];
@@ -72,7 +77,56 @@ internal sealed class SessionLauncherState
             return;
         }
 
-        SelectedHistoryIndex = (SelectedHistoryIndex + delta + Conversations.Count) % Conversations.Count;
+        var targetIndex = (SelectedHistoryIndex + delta) % Conversations.Count;
+        SelectedHistoryIndex = targetIndex < 0 ? targetIndex + Conversations.Count : targetIndex;
+    }
+
+    /// <summary>
+    /// 将历史列表选中项定位到首个会话。
+    /// </summary>
+    public void SelectFirstHistoryItem()
+    {
+        SelectedHistoryIndex = 0;
+    }
+
+    /// <summary>
+    /// 将历史列表选中项定位到最后一个会话。
+    /// </summary>
+    public void SelectLastHistoryItem()
+    {
+        SelectedHistoryIndex = Math.Max(0, Conversations.Count - 1);
+    }
+
+    /// <summary>
+    /// 确保当前选中会话位于历史列表可见范围内。
+    /// </summary>
+    /// <param name="visibleItemCount">当前终端高度可显示的会话数量。</param>
+    /// <returns>历史列表视窗起始索引是否发生变化。</returns>
+    public bool EnsureHistorySelectionVisible(int visibleItemCount)
+    {
+        if (Conversations.Count == 0)
+        {
+            HistoryStartIndex = 0;
+            return false;
+        }
+
+        var oldStartIndex = HistoryStartIndex;
+        var visibleCount = Math.Max(1, visibleItemCount);
+        var maxStartIndex = Math.Max(0, Conversations.Count - visibleCount);
+
+        // 选中项移到视窗上方时，直接以选中项作为新的第一项。
+        if (SelectedHistoryIndex < HistoryStartIndex)
+        {
+            HistoryStartIndex = SelectedHistoryIndex;
+        }
+        // 选中项移到视窗下方时，保留一整屏内容并让选中项落在最后一项。
+        else if (SelectedHistoryIndex >= HistoryStartIndex + visibleCount)
+        {
+            HistoryStartIndex = SelectedHistoryIndex - visibleCount + 1;
+        }
+
+        HistoryStartIndex = Math.Clamp(HistoryStartIndex, 0, maxStartIndex);
+        return oldStartIndex != HistoryStartIndex;
     }
 
     /// <summary>
@@ -82,6 +136,7 @@ internal sealed class SessionLauncherState
     {
         IsHistoryMode = true;
         SelectedHistoryIndex = 0;
+        HistoryStartIndex = 0;
     }
 
     /// <summary>

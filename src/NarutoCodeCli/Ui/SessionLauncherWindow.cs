@@ -18,6 +18,9 @@ internal sealed class SessionLauncherWindow : Window
     private readonly SessionLauncherState state;
     private readonly List<Label> contentLabels = [];
     private readonly Label dividerLabel = new();
+    private const int HistoryHeaderRowCount = 5;
+    private const int HistoryFooterRowCount = 3;
+    private const int WheelSelectionStep = 3;
     private bool selectionMade;
 
     /// <summary>
@@ -63,6 +66,12 @@ internal sealed class SessionLauncherWindow : Window
     {
         base.OnSubViewsLaidOut(e);
         RefreshDivider();
+
+        // 终端缩小时重新夹紧视窗，避免当前高亮会话落到可见范围之外。
+        if (state.IsHistoryMode && state.EnsureHistorySelectionVisible(GetVisibleHistoryItemCount()))
+        {
+            Refresh();
+        }
     }
 
     /// <inheritdoc />
@@ -74,11 +83,29 @@ internal sealed class SessionLauncherWindow : Window
         {
             if (key == Key.CursorUp)
             {
-                state.MoveHistorySelection(-1);
+                MoveHistorySelection(-1);
             }
             else if (key == Key.CursorDown)
             {
-                state.MoveHistorySelection(1);
+                MoveHistorySelection(1);
+            }
+            else if (key == Key.PageUp)
+            {
+                MoveHistorySelection(-GetVisibleHistoryItemCount());
+            }
+            else if (key == Key.PageDown)
+            {
+                MoveHistorySelection(GetVisibleHistoryItemCount());
+            }
+            else if (key == Key.Home)
+            {
+                state.SelectFirstHistoryItem();
+                state.EnsureHistorySelectionVisible(GetVisibleHistoryItemCount());
+            }
+            else if (key == Key.End)
+            {
+                state.SelectLastHistoryItem();
+                state.EnsureHistorySelectionVisible(GetVisibleHistoryItemCount());
             }
             else if (key == Key.N)
             {
@@ -137,6 +164,31 @@ internal sealed class SessionLauncherWindow : Window
         }
 
         return true;
+    }
+
+    /// <inheritdoc />
+    protected override bool OnMouseEvent(Mouse mouse)
+    {
+        if (!state.IsHistoryMode)
+        {
+            return base.OnMouseEvent(mouse);
+        }
+
+        if (mouse.Flags.HasFlag(MouseFlags.WheeledUp))
+        {
+            MoveHistorySelection(-WheelSelectionStep);
+            Refresh();
+            return true;
+        }
+
+        if (mouse.Flags.HasFlag(MouseFlags.WheeledDown))
+        {
+            MoveHistorySelection(WheelSelectionStep);
+            Refresh();
+            return true;
+        }
+
+        return base.OnMouseEvent(mouse);
     }
 
     private SessionLauncherResult ResolveHubSelection()
@@ -221,6 +273,26 @@ internal sealed class SessionLauncherWindow : Window
         dividerLabel.Text = new string('─', width);
     }
 
+    /// <summary>
+    /// 移动历史会话选中项，并让选中项始终留在当前可见范围中。
+    /// </summary>
+    /// <param name="delta">选中项移动数量。</param>
+    private void MoveHistorySelection(int delta)
+    {
+        state.MoveHistorySelection(delta);
+        state.EnsureHistorySelectionVisible(GetVisibleHistoryItemCount());
+    }
+
+    /// <summary>
+    /// 计算当前终端高度能够完整展示的历史会话数量。
+    /// 每个会话固定占两行，头部和底部操作提示保持固定。
+    /// </summary>
+    private int GetVisibleHistoryItemCount()
+    {
+        var availableRowCount = Math.Max(2, Viewport.Height - 2 - HistoryHeaderRowCount - HistoryFooterRowCount);
+        return Math.Max(1, availableRowCount / 2);
+    }
+
     private IReadOnlyList<(string Text, UiTextStyle Style)> BuildHubRows()
     {
         var rows = new List<(string, UiTextStyle)>
@@ -270,14 +342,19 @@ internal sealed class SessionLauncherWindow : Window
         }
         else
         {
-            for (var index = 0; index < state.Conversations.Count; index++)
+            var visibleItemCount = GetVisibleHistoryItemCount();
+            state.EnsureHistorySelectionVisible(visibleItemCount);
+            var endIndex = Math.Min(state.Conversations.Count, state.HistoryStartIndex + visibleItemCount);
+            for (var index = state.HistoryStartIndex; index < endIndex; index++)
             {
                 AddHistoryItem(rows, index);
             }
+
+            rows.Add(($"{state.HistoryStartIndex + 1}–{endIndex} / {state.Conversations.Count} 条会话", UiTextStyle.Subtle));
         }
 
-        rows.Add((string.Empty, UiTextStyle.Subtle));
-        rows.Add(("↑↓ navigate    Enter select    n new    Esc back", UiTextStyle.Subtle));
+        rows.Add(("↑↓ select  PgUp/PgDn page  Home/End jump  wheel scroll", UiTextStyle.Subtle));
+        rows.Add(("Enter select    n new    Esc back", UiTextStyle.Subtle));
         return rows;
     }
 

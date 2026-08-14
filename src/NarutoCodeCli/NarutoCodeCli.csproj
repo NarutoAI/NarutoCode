@@ -32,4 +32,8 @@
       <ProjectReference Include="..\NarutoCode.Infrastructure\NarutoCode.Infrastructure.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <InternalsVisibleTo Include="NarutoCodeCli.Tests" />
+    </ItemGroup>
+
 </Project>
