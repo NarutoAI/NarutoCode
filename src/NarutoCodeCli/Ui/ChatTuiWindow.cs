@@ -397,12 +397,18 @@ internal sealed class ChatTuiWindow : Window
         dividerLabel.Text = new string('─', width);
     }
 
+    /// <summary>
+    /// 刷新顶部状态行：显示工作目录、当前 provider、模型 ID、推理强度与运行状态。
+    /// </summary>
     private void RefreshHeader()
     {
         var cwd = workspaceContextAccessor.Current.WorkingDirectory;
-        cwdLabel.Text = isOperationRunning
-            ? $"{cwd}  ·  ● running"
-            : $"{cwd}  ·  ✓ ready";
+        var provider = llmSettingsService.CurrentProvider;
+        var model = llmSettingsService.CurrentLlm.Model;
+        var effort = llmSettingsService.CurrentEffort.ToString().ToLowerInvariant();
+        var activity = isOperationRunning ? "● running" : "✓ ready";
+
+        cwdLabel.Text = $"{cwd}  ·  provider {provider}  ·  model {model}  ·  effort {effort}  ·  {activity}";
         cwdLabel.SetScheme(isOperationRunning
             ? TuiStyles.GetRunningScheme()
             : TuiStyles.GetReadyScheme());
