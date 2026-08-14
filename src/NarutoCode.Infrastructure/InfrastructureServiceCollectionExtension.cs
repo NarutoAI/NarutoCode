@@ -51,6 +51,8 @@ public static class InfrastructureServiceCollectionExtension
                         .Create(llm)
                         .AsBuilder()
                         .UseListeningMessageQueue()
+                        // 传输层流式重试放在最内层（后注册先包裹内层）：重试只重发底层 HTTP 请求，不重放上层管道副作用
+                        .UseStreamingRetry()
                         .Build());
             }
 
