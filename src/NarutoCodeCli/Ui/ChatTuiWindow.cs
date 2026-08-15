@@ -213,6 +213,15 @@ internal sealed class ChatTuiWindow : Window
             return true;
         }
 
+        // 焦点不在输入框时按 Esc（如误点消息列表后）：把焦点交还输入框并停止传播。
+        // 框架默认把 Esc 绑定到 Command.Quit（Application.cs 默认键绑定），
+        // 若放任其冒泡，界面会进入失效/退出路径，表现为"按 Esc 后无法操作"。
+        if (key == Key.Esc && !inputField.HasFocus)
+        {
+            inputField.SetFocus();
+            return true;
+        }
+
         return base.OnKeyDown(key);
     }
 

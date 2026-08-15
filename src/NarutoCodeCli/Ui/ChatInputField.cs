@@ -80,11 +80,25 @@ internal sealed class ChatInputField : TextView
             return true;
         }
 
-        // Esc 清空草稿并复位光标，消费按键避免触发框架默认 Cancel 行为导致焦点失效；
-        // 待发送图片由窗口单独管理，不在此处清除，用户仍可继续输入说明后发送。
-        // CurrentRow/CurrentColumn 在 2.4.17 为只读，光标复位走框架 Start 命令。
+        // Esc 优先关闭覆盖层（Autocomplete 候选框 / 右键菜单 popover）：
+        // 这些层盖在输入框上，若在此直接消费 Esc，覆盖层将无法关闭，
+        // 后续所有键盘与鼠标输入都会被其吞掉，表现为"界面无法操作"。
+        // 仅在没有覆盖层需要关闭时才执行"清空草稿并复位光标"。
         if (key == Key.Esc)
         {
+            // Autocomplete 的 CloseKey 默认就是 Esc：主动交给它处理并检查返回值，
+            // 只有它确实消费了 Esc（候选框关闭）才返回，避免 Esc 冒泡到框架的 Quit 命令。
+            if (Autocomplete.Suggestions.Count > 0 && Autocomplete.ProcessKey(key))
+            {
+                return true;
+            }
+
+            // 存在 Popover 覆盖层（如右键菜单）时放行给框架：Popover 把 Esc 绑定到 Command.Quit（隐藏自身）。
+            if (App?.Popovers?.GetActivePopover() is { Visible: true })
+            {
+                return base.OnKeyDown(key);
+            }
+
             Text = string.Empty;
             InvokeCommand(Command.Start);
             return true;
