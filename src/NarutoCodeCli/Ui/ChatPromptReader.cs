@@ -7,7 +7,7 @@ namespace NarutoCodeCli.Ui;
 /// </summary>
 internal static class ChatPromptReader
 {
-    private const string DefaultInputHint = "⏎ send    Ctrl+V 贴图（可多张，Enter 发送）    Tab messages    / commands    Esc clear    Ctrl+C cancel / exit";
+    private const string DefaultInputHint = "⏎ send    Ctrl+Enter 换行    Ctrl+V 贴图（可多张，Enter 发送）    / commands    Esc clear    Ctrl+C cancel / exit";
     private const string SlashCommandHint = "commands: /provider [name] · /effort <low|medium|high|xhigh> · /image <path...> [text] · /pi [text] · /exit";
 
     /// <summary>
@@ -18,6 +18,21 @@ internal static class ChatPromptReader
     public static string GetInputHint(string? input)
     {
         return input?.StartsWith('/') == true ? SlashCommandHint : DefaultInputHint;
+    }
+
+    /// <summary>
+    /// 将输入文本中的换行符统一为 \n（CRLF 与 CR 均归一为 LF），供多行消息提交前做归一化处理。
+    /// </summary>
+    /// <param name="text">原始输入文本。</param>
+    /// <returns>归一化后的文本；空输入返回空字符串。</returns>
+    public static string NormalizeLineEndings(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        return text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
     }
 
     /// <summary>
