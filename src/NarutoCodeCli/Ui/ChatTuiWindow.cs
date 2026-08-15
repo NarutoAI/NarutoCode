@@ -45,8 +45,7 @@ internal sealed class ChatTuiWindow : Window
     private int queuedMessageCount;
     private bool inputFocusInitialized;
     private int renderedDividerWidth = -1;
-    private int renderedInputHeight;
-    private const int MaxInputHeightRows = 8;
+    private const int InputAreaHeightRows = 4;
 
     /// <summary>
     /// 用户请求退出（Ctrl+C 且无运行中任务）时触发。
@@ -106,37 +105,37 @@ internal sealed class ChatTuiWindow : Window
         cwdLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.Muted));
 
         // 消息区直接使用全宽，避免窄终端中左侧装饰占用正文列数。
-        // 高度在 AdjustInputLayout 中按输入框当前行数动态设置（顶部 4 行 + 底部输入区）。
+        // 底部固定区域：待发图片栏(1) + 输入面板(4) + 状态(1) + 快捷键(1) + 1 空行 = 8 行
         messageList.X = 0;
         messageList.Y = 4;
         messageList.Width = Dim.Fill();
+        messageList.Height = Dim.Fill(Dim.Absolute(8));
         messageList.StateChanged += RefreshStatus;
 
-        // 底部区域：待发图片栏 + 多行输入面板（高度随内容行数 1~8 行伸缩）+ 状态 + 快捷键栏。
-        // 输入面板的纵向位置与高度由 AdjustInputLayout 统一维护，构造时先按单行占位。
+        // 底部固定区域：待发图片栏 + 四行输入面板 + 状态 + 快捷键栏，直接贴齐底部。
+        // 输入面板固定 4 行高，长文本在框内折行显示，超过 4 行内部滚动。
         pendingImagesLabel.X = 0;
-        pendingImagesLabel.Y = Pos.AnchorEnd(4);
+        pendingImagesLabel.Y = Pos.AnchorEnd(7);
         pendingImagesLabel.Width = Dim.Fill();
         pendingImagesLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.Warning));
         pendingImagesLabel.Text = string.Empty;
 
         inputPromptLabel.Text = "❯ ";
         inputPromptLabel.X = 0;
-        inputPromptLabel.Y = Pos.AnchorEnd(3);
+        inputPromptLabel.Y = Pos.AnchorEnd(6);
         inputPromptLabel.Width = 2;
         inputPromptLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.AccentStrong));
 
-        // 多行输入框：开启自动换行，长行在框内折行显示；高度与纵向位置动态调整
-        inputField = new ChatInputField { X = 2, Width = Dim.Fill() };
-        inputField.Multiline = true;
-        inputField.WordWrap = true;
+        // 多行输入框：Multiline/WordWrap 已在 ChatInputField 构造函数中开启，
+        // 长行在框内自动折行显示；固定 4 行高，与提示符首行对齐
+        inputField = new ChatInputField { X = 2, Y = Pos.AnchorEnd(6), Width = Dim.Fill(), Height = Dim.Absolute(InputAreaHeightRows) };
         inputField.SetScheme(TuiStyles.GetInputScheme());
         inputField.SubmitPressed += OnInputAccepted;
         inputField.PasteImageRequested += OnPasteImageRequested;
         inputField.CancelRequested += HandleCancelRequested;
         // TextView 的 TextChanged 仅在 Text 整体赋值时触发；ContentsChanged 覆盖键入、粘贴与删除
-        inputField.TextChanged += (_, _) => OnInputContentChanged();
-        inputField.ContentsChanged += (_, _) => OnInputContentChanged();
+        inputField.TextChanged += (_, _) => RefreshHint();
+        inputField.ContentsChanged += (_, _) => RefreshHint();
 
         statusLabel.X = 0;
         statusLabel.Y = Pos.AnchorEnd(2);
@@ -150,8 +149,6 @@ internal sealed class ChatTuiWindow : Window
 
         Add(brandLabel, dividerLabel, cwdLabel, messageList, statusLabel, pendingImagesLabel, inputPromptLabel, inputField, hintLabel);
 
-        // 首次应用输入区布局（高度、纵向位置与消息区预留高度）
-        AdjustInputLayout();
         RefreshHeader();
         RefreshStatus();
         RefreshHint();
@@ -338,13 +335,13 @@ internal sealed class ChatTuiWindow : Window
     }
 
     /// <summary>
-    /// 清空输入框草稿并复位光标与输入区高度，供消息提交或 Esc 清除后调用。
+    /// 清空输入框草稿并复位光标，供消息提交或 Esc 清除后调用。
+    /// 输入区高度固定，无需重新调整布局。
     /// </summary>
     private void ClearInputDraft()
     {
         inputField.Text = string.Empty;
         inputField.InvokeCommand(Command.Start);
-        AdjustInputLayout();
     }
 
     /// <summary>
@@ -449,40 +446,6 @@ internal sealed class ChatTuiWindow : Window
     {
         hintLabel.Text = ChatPromptReader.GetInputHint(inputField.Text);
         SetNeedsDraw();
-    }
-
-    /// <summary>
-    /// 输入内容变化（键入/粘贴/删除/整体赋值）后同步刷新提示与输入区布局。
-    /// </summary>
-    private void OnInputContentChanged()
-    {
-        RefreshHint();
-        AdjustInputLayout();
-    }
-
-    /// <summary>
-    /// 按输入框当前行数调整底部布局：输入区高度限制在 1~8 行，
-    /// 提示符、待发图片栏与消息区预留高度随之联动，保证多行输入可见且不遮挡消息。
-    /// </summary>
-    private void AdjustInputLayout()
-    {
-        var height = Math.Clamp(Math.Max(1, inputField.Lines), 1, MaxInputHeightRows);
-        if (height == renderedInputHeight)
-        {
-            return;
-        }
-
-        renderedInputHeight = height;
-        // 输入区底行固定位于状态栏（倒数第 2 行）上方一行，高度 h 时占倒数第 3 ~ 第 2+h 行
-        inputField.Height = Dim.Absolute(height);
-        inputField.Y = Pos.AnchorEnd(2 + height);
-        // 提示符 ❯ 与输入区顶行对齐
-        inputPromptLabel.Y = Pos.AnchorEnd(2 + height);
-        // 待发图片栏位于输入区上方一行
-        pendingImagesLabel.Y = Pos.AnchorEnd(3 + height);
-        // 消息区预留：顶部 4 行 + 底部（图片栏 1 + 输入 h + 状态 1 + 快捷键 1）= 4+h 行
-        messageList.Height = Dim.Fill(Dim.Absolute(4 + height));
-        SetNeedsLayout();
     }
 
     private void RefreshStatus()

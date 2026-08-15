@@ -1,5 +1,6 @@
 ﻿using Terminal.Gui.Drivers;
 using Terminal.Gui.Input;
+using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
 namespace NarutoCodeCli.Ui;
@@ -28,6 +29,39 @@ internal sealed class ChatInputField : TextView
     /// 有选中文字时不触发，按键放行给 TextView 的复制命令。
     /// </summary>
     public event Action? CancelRequested;
+
+    /// <summary>
+    /// 创建多行聊天输入框：默认开启多行编辑与自动折行。
+    /// WordWrap 依赖 Multiline，必须先开启 Multiline；折行宽度按 Viewport 在布局时计算。
+    /// </summary>
+    public ChatInputField()
+    {
+        Multiline = true;
+        WordWrap = true;
+    }
+
+    private bool wrapReady;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// 首次布局完成、Viewport 宽度就绪后强制重建折行模型：
+    /// 构造函数中 WordWrap=true 时 Viewport.Width 为 0，折行宽度会被污染，
+    /// 这里重新应用 WordWrap 让 _frameWidth 使用真实宽度（见 2.4.17 WordWrapManager）。
+    /// </remarks>
+    protected override void OnSubViewsLaidOut(LayoutEventArgs e)
+    {
+        base.OnSubViewsLaidOut(e);
+
+        if (wrapReady)
+        {
+            return;
+        }
+
+        wrapReady = true;
+        // 先关再开：WordWrap setter 在值未变化时直接返回，toggle 强制走 WrapTextModel 重建
+        WordWrap = false;
+        WordWrap = true;
+    }
 
     /// <inheritdoc />
     protected override bool OnKeyDown(Key key)
