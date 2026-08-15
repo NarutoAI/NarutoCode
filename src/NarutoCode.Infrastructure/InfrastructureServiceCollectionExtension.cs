@@ -7,6 +7,7 @@ using NarutoCode.Domain.Configurations;
 using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Enums;
+using NarutoCode.Domain.Interactions;
 using NarutoCode.Domain.LlmContextAccessors;
 using NarutoCode.Infrastructure.AIAgents;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
@@ -30,7 +31,8 @@ public static class InfrastructureServiceCollectionExtension
         /// 注册基础设施层服务，包括应用层依赖、LLM 协议工厂和当前配置对应的聊天客户端。
         /// </summary>
         /// <param name="logFileName">日志文件名前缀，CLI 保持默认 <c>.log</c>，桌面端传 <c>desktop-api-.log</c>。</param>
-        public async Task AddInfrastructure(string logFileName = ".log")
+        /// <param name="enableUserInteractionTools">是否启用 ask_user 用户交互工具；仅 CLI 传 true，桌面端/网关保持默认 false。</param>
+        public async Task AddInfrastructure(string logFileName = ".log", bool enableUserInteractionTools = false)
         {
             await services.AddApplication();
 
@@ -57,6 +59,8 @@ public static class InfrastructureServiceCollectionExtension
             }
 
             services.AddSingleton<IAgentChatClient, MafAgentChatClient>();
+            // 用户交互工具开关：决定会话级 Agent 是否挂载 ask_user_* 工具（仅 CLI 启用）
+            services.AddSingleton(new AgentFactoryOptions(enableUserInteractionTools));
             services.AddSingleton<IAgentFactory, AgentFactory>();
 
             // 子 Agent 编排：加载配置注册表并注册工作目录执行锁
@@ -68,6 +72,7 @@ public static class InfrastructureServiceCollectionExtension
             services.AddSingleton<ConversationRepositoryCoordinator>();
             services.AddSingleton<IChatHistoryPersistenceHandler, ConversationChatHistoryPersistenceHandler>();
             services.AddSingleton<IConversationRepository, ConversationRepository>();
+            services.AddSingleton<IUserInteractionStore, UserInteractionRepository>();
             services.AddSingleton<DbInitializer>();
             services.AddLogging();
             services.AddLogger(logFileName);

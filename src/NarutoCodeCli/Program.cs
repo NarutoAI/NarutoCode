@@ -54,7 +54,8 @@ static async Task<InitializationResult> InitializeServicesAsync(
     services.AddSingleton<IWorkspaceContextAccessor>(new CliWorkspaceContextAccessor(workspaceContext));
     try
     {
-        await services.AddInfrastructure();
+        // CLI 启用 ask_user 用户交互工具：桌面端/网关不传此开关，工具对模型不可见
+        await services.AddInfrastructure(enableUserInteractionTools: true);
     }
     catch (Exception e)
     {

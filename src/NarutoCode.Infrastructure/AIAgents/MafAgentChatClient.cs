@@ -273,7 +273,12 @@ public class MafAgentChatClient : IAgentChatClient
             var functionCallContent = item.Contents?.OfType<FunctionCallContent>().FirstOrDefault();
             if (functionCallContent is not null)
             {
-                yield return new(AgentMessageType.ToolCall, $"{functionCallContent.Name}");
+                // ask_user 工具由 TUI 的结构化问卷卡片负责展示，不能再泄露内部工具名。
+                if (!IsUserInteractionFunction(functionCallContent.Name))
+                {
+                    yield return new AgentMessage(AgentMessageType.ToolCall, functionCallContent.Name);
+                }
+
                 continue;
             }
 
@@ -311,6 +316,16 @@ public class MafAgentChatClient : IAgentChatClient
                 yield return new(AgentMessageType.Content, item.Text);
             }
         }
+    }
+
+    /// <summary>
+    /// 判断函数调用是否为需要以问答卡片展示的用户交互工具。
+    /// </summary>
+    /// <param name="functionName">函数名称。</param>
+    /// <returns>属于 ask_user 工具时返回 <see langword="true" />。</returns>
+    private static bool IsUserInteractionFunction(string functionName)
+    {
+        return functionName is "narutocode_ask_user_question" or "narutocode_ask_user_input";
     }
 
     private async Task<ChatMessage> CreateChatMessageAsync(AgentMessage message)

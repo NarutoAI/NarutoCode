@@ -1,5 +1,6 @@
 ﻿# NarutoCode 使用说明
 ![](/doc//img/ui.png)
+![](/doc//img/userinteraction.png)
 NarutoCode 是一个在终端中使用的 Agent 编程工具。启动后，你可以直接用自然语言让它分析项目、修改文件、执行命令、排查问题或整理文档。
 
 > 说明：客户端 GUI 暂时没有完成，当前仅提供终端（TUI）使用方式。

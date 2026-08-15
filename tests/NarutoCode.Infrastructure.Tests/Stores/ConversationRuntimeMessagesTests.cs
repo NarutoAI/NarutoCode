@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.AI;
+using NarutoCode.Domain.Messages;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.Stores;
 
@@ -66,6 +67,43 @@ public sealed class ConversationRuntimeMessagesTests
         Assert.HasCount(1, runtimeMessages);
         Assert.Contains("compacted-runtime-handler-message", runtimeMessages[0].ModelContent);
         Assert.DoesNotContain("full-ui-handler-message", runtimeMessages[0].ModelContent);
+    }
+
+    /// <summary>
+    /// 重载 UI 历史时，narutocode_ask_user_question 应投影为问题与回答，不能泄露内部工具名称。
+    /// </summary>
+    [TestMethod]
+    public async Task ListMessagesWithUIAsync_WhenUserInteractionCompleted_ProjectsQuestionAndAnswer()
+    {
+        // Arrange
+        databasePath = Path.Combine(Path.GetTempPath(), $"narutocode-user-interaction-{Guid.NewGuid():N}.db");
+        var connectionFactory = new SqliteConnectionFactory(databasePath);
+        var initializer = new DbInitializer(connectionFactory);
+        await initializer.InitializeAsync();
+
+        var repository = new ConversationRepository(connectionFactory);
+        var coordinator = new ConversationRepositoryCoordinator(connectionFactory);
+        var conversation = await repository.CreateForWorkDirectoryAsync(Path.GetTempPath());
+        const string callId = "ask-user-1";
+        var call = new FunctionCallContent(
+            callId,
+            "narutocode_ask_user_question",
+            new Dictionary<string, object?> { ["Question"] = "你希望采用哪种交互方式？" });
+
+        // Act
+        await coordinator.AddAsync(conversation.Id,
+        [
+            new ChatMessage(ChatRole.Assistant, [call]),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent(callId, "用户选择了：底部问卷抽屉")])
+        ]);
+        var uiMessages = await repository.ListMessagesWithUIAsync(conversation.Id);
+
+        // Assert
+        Assert.HasCount(1, uiMessages);
+        Assert.AreEqual(AgentMessageType.Content, uiMessages[0].MessageType);
+        Assert.Contains("❓ 你希望采用哪种交互方式？", uiMessages[0].Content);
+        Assert.Contains("↳ 用户选择了：底部问卷抽屉", uiMessages[0].Content);
+        Assert.DoesNotContain("narutocode_ask_user_question", uiMessages[0].Content);
     }
 
     [TestMethod]

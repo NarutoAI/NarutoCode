@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Conversations;
+﻿using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 
 namespace NarutoCodeCli.Ui;
@@ -69,6 +69,16 @@ internal sealed class ChatSessionState
     {
         ArgumentNullException.ThrowIfNull(message);
         messages.Add(message);
+    }
+
+    /// <summary>
+    /// 移除指定的临时聊天消息，用于撤销用户取消的交互等待卡片。
+    /// </summary>
+    /// <param name="message">需要移除的消息。</param>
+    public void RemoveMessage(ChatMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        messages.Remove(message);
     }
 
     /// <summary>

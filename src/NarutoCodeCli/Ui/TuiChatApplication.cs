@@ -1,9 +1,13 @@
-﻿using NarutoCode.Domain.Configurations;
+﻿using System.Collections.Concurrent;
+using NarutoCode.Application.Interactions;
+using NarutoCode.Domain.Configurations;
 using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Enums;
+using NarutoCode.Domain.Interactions;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
+using NarutoCode.Infrastructure;
 using Terminal.Gui.App;
 
 namespace NarutoCodeCli.Ui;
@@ -19,7 +23,8 @@ internal sealed class TuiChatApplication(
     IWorkspaceContextAccessor workspaceContextAccessor,
     ChatCancellationCoordinator cancellationCoordinator,
     PendingUserMessageQueue pendingUserMessageQueue,
-    ILlmSettingsService llmSettingsService)
+    ILlmSettingsService llmSettingsService,
+    IUserInteractionManager userInteractionManager)
 {
     private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -33,6 +38,9 @@ internal sealed class TuiChatApplication(
     private readonly ChatSessionState sessionState = new();
     private ConversationSessionId sessionId = ConversationSessionId.New();
     private long projectId;
+
+    // 活跃交互登记：交互 Id → 等待态卡片；终态删除卡片并以 TryRemove 去重。
+    private readonly ConcurrentDictionary<long, ChatMessage> activeInteractions = new();
 
     /// <summary>
     /// 运行 TUI 主流程（同步阻塞；调用线程承担 Terminal.Gui 的 Init/Run/Shutdown 生命周期）。
@@ -60,6 +68,9 @@ internal sealed class TuiChatApplication(
         var history = LoadHistory(selection, cancellationToken);
         sessionId = history.SessionId;
         sessionState.LoadHistory(history);
+
+        // 清理上次进程遗留的等待中交互：当前无 Run 级恢复能力，标记取消并保留审计记录
+        userInteractionManager.CancelPendingAsync(sessionId.Value, cancellationToken).GetAwaiter().GetResult();
 
         // 聊天阶段：独立 IApplication 实例
         RunChatStage(cancellationToken);
@@ -112,6 +123,8 @@ internal sealed class TuiChatApplication(
         var screenSizeMonitor = StartScreenSizeMonitor(app);
 
         var chatWindow = new ChatTuiWindow(app, workspaceContextAccessor, pendingUserMessageQueue, cancellationCoordinator, clipboardImageStore, llmSettingsService);
+        // 订阅用户交互事件：Agent 工具发起提问时在 UI 线程弹出模态 Dialog
+        AttachUserInteraction(app, chatWindow);
         var businessTask = Task.Run(() => RunChatLoopAsync(app, chatWindow, cancellationToken));
         try
         {
@@ -125,6 +138,138 @@ internal sealed class TuiChatApplication(
 
         businessTask.GetAwaiter().GetResult();
     }
+
+    /// <summary>
+    /// 订阅用户交互事件：Agent 工具发起提问时在 UI 线程弹出模态 Dialog，作答后回写终态并在对话流留痕。
+    /// </summary>
+    /// <param name="app">Terminal.Gui 应用实例（用于 UI 线程调度）。</param>
+    /// <param name="chatWindow">聊天主窗口。</param>
+    private void AttachUserInteraction(IApplication app, ChatTuiWindow chatWindow)
+    {
+        // 交互请求：在 UI 线程先创建等待态卡片，再弹出抽屉/输入弹窗；工具线程继续等待 TCS。
+        userInteractionManager.InteractionRequested += (request, cancellationToken) =>
+        {
+            app.Invoke(() =>
+            {
+                AddPendingInteractionTraceMessage(request);
+                chatWindow.UpdateState(sessionState);
+                RunInteractionDialog(app, request, cancellationToken);
+            });
+            return Task.CompletedTask;
+        };
+
+        // 交互终态：对话流留痕并刷新界面（含 Esc 取消与 Ctrl+C 运行取消两条路径）
+        userInteractionManager.InteractionCompleted += result =>
+        {
+            app.Invoke(() =>
+            {
+                AddInteractionTraceMessage(result);
+                chatWindow.UpdateState(sessionState);
+            });
+        };
+    }
+
+    /// <summary>
+    /// 在 UI 线程运行交互模态弹窗：用户作答/取消后回写终态唤醒工具线程；
+    /// 运行取消令牌触发时同步关闭弹窗，避免孤儿 Dialog。
+    /// </summary>
+    /// <param name="app">Terminal.Gui 应用实例。</param>
+    /// <param name="request">交互请求。</param>
+    /// <param name="cancellationToken">运行取消令牌（Ctrl+C 链路）。</param>
+    private void RunInteractionDialog(IApplication app, UserInteractionRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Ctrl+C 时请求中止当前运行任务（走现有取消协调器），Esc 仅取消本次交互。
+            // 批量题目在同一张抽屉中切换并统一提交，单题继续使用既有弹窗。
+            UserInteractionResult? result;
+            if (request.Questions.Count > 0)
+            {
+                var dialog = new BatchInteractionDialog(
+                    app, request, requestOperationCancel: () => cancellationCoordinator.TryCancelCurrentOperation());
+                using var cancellationRegistration = cancellationToken.Register(
+                    () => app.Invoke(() => app.RequestStop(dialog)));
+                app.Run(dialog);
+                result = dialog.InteractionResult;
+            }
+            else
+            {
+                var dialog = new InteractionDialog(
+                    app, request, requestOperationCancel: () => cancellationCoordinator.TryCancelCurrentOperation());
+                using var cancellationRegistration = cancellationToken.Register(
+                    () => app.Invoke(() => app.RequestStop(dialog)));
+                app.Run(dialog);
+                result = dialog.InteractionResult;
+            }
+
+            // Dialog 停止后读取结果；异常关闭时按取消处理，保证工具线程必然被唤醒
+            _ = userInteractionManager.CompleteAsync(
+                request.Id,
+                result ?? new UserInteractionResult(request.Id, UserInteractionStatus.Cancelled, string.Empty),
+                CancellationToken.None);
+        }
+        catch (Exception)
+        {
+            // 弹窗异常视为交互不可用：回写取消，避免工具线程永久挂起
+            _ = userInteractionManager.CompleteAsync(
+                request.Id,
+                new UserInteractionResult(request.Id, UserInteractionStatus.Cancelled, string.Empty),
+                CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// 在聊天流创建待回答卡片，并登记为可原地更新的活跃交互。
+    /// </summary>
+    /// <param name="request">用户交互请求。</param>
+    private void AddPendingInteractionTraceMessage(UserInteractionRequest request)
+    {
+        var trace = ChatMessage.CreateAssistant();
+        trace.Append(new AgentMessage(AgentMessageType.Content, FormatInteractionTrace(request, "⏳ 等待你的回答…")));
+        sessionState.AddMessage(trace);
+        activeInteractions[request.Id] = trace;
+    }
+
+    /// <summary>
+    /// 交互终态处理：用户提交或取消后均移除临时等待卡片；重复终态只处理一次。
+    /// </summary>
+    /// <param name="result">交互结果。</param>
+    private void AddInteractionTraceMessage(UserInteractionResult result)
+    {
+        // 首次终态才会命中缓存移除；重复事件直接跳过，避免重复移除。
+        if (!activeInteractions.TryRemove(result.InteractionId, out var traceMessage))
+        {
+            return;
+        }
+
+        sessionState.RemoveMessage(traceMessage);
+    }
+
+    /// <summary>
+    /// 格式化交互卡片：标题、问题、选择题只读选项摘要与当前状态行。
+    /// </summary>
+    /// <param name="request">交互请求。</param>
+    /// <param name="status">等待态或终态摘要。</param>
+    /// <returns>聊天流卡片文本。</returns>
+    private static string FormatInteractionTrace(UserInteractionRequest request, string status)
+    {
+        var lines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(request.Title))
+        {
+            lines.Add($"❓ {request.Title}");
+        }
+
+        lines.Add(string.IsNullOrWhiteSpace(request.Title) ? $"❓ {request.Question}" : $"   {request.Question}");
+        if (request.Type == UserInteractionType.Selection)
+        {
+            var marker = request.Multiple ? "☐" : "○";
+            lines.AddRange(request.Options.Select(option => $"   {marker} {option.Label}"));
+        }
+
+        lines.Add($"   ↳ {status}");
+        return string.Join(Environment.NewLine, lines);
+    }
+
 
     /// <summary>
     /// 聊天业务主循环：读取输入（窗口 TCS 桥接）→ 处理 → 流式输出，直到退出。
@@ -281,6 +426,9 @@ internal sealed class TuiChatApplication(
         CancellationToken cancellationToken)
     {
         var hasError = false;
+
+        // 会话作用域：AsyncLocal 随异步调用链向 MAF 工具执行线程流动当前会话标识（ask_user 工具读取）
+        using var sessionScope = userInteractionManager.BeginSessionScope(sessionId.Value);
 
         await foreach (var chunk in conversationService.SendMessageAsync(sessionId, outgoingMessage, cancellationToken))
         {

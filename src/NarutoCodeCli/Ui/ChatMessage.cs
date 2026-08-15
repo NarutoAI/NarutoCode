@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using NarutoCode.Domain.Messages;
 
 namespace NarutoCodeCli.Ui;
@@ -81,6 +81,25 @@ internal sealed class ChatMessage
     public static ChatMessage CreateAssistant()
     {
         return new ChatMessage(ChatRole.Assistant, string.Empty);
+    }
+
+    /// <summary>
+    /// 替换助手消息的全部展示内容，用于将用户交互卡片从等待态原地更新为终态。
+    /// </summary>
+    /// <param name="content">新的完整展示内容。</param>
+    public void ReplaceAssistantContent(string content)
+    {
+        if (Role != ChatRole.Assistant)
+        {
+            throw new InvalidOperationException("只有助手消息可以替换展示内容。");
+        }
+
+        agentMessages.Clear();
+        agentMessages.Add(new AgentMessage(AgentMessageType.Content, content));
+        assistantContent.Clear();
+        assistantContent.Append(content);
+        assistantContentCache = null;
+        RenderVersion++;
     }
 
     /// <summary>

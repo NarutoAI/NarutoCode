@@ -5,6 +5,7 @@ using Microsoft.Agents.AI.LocalCodeAct;
 using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using NarutoCode.Application.Interactions;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Messages;
@@ -35,6 +36,8 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
     private readonly McpClientManager _mcpClientManager;
     private readonly SubAgentRegistry _subAgentRegistry;
     private readonly ILlmSettingsService _llmSettingsService;
+    private readonly AgentFactoryOptions _agentFactoryOptions;
+    private readonly IUserInteractionManager _userInteractionManager;
     private readonly ConcurrentDictionary<string, WorkspaceAgentPool> _workspacePools = new(StringComparer.Ordinal);
     private readonly ILogger<AgentFactory> _logger;
     private int _disposed;
@@ -50,7 +53,9 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
         DynamicChatClient dynamicChatClient,
         McpClientManager mcpClientManager,
         SubAgentRegistry subAgentRegistry,
-        ILlmSettingsService llmSettingsService)
+        ILlmSettingsService llmSettingsService,
+        AgentFactoryOptions agentFactoryOptions,
+        IUserInteractionManager userInteractionManager)
     {
         this._workspaceContextAccessor = workspaceContextAccessor;
         this._chatHistoryPersistenceHandler = chatHistoryPersistenceHandler;
@@ -60,6 +65,8 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
         this._mcpClientManager = mcpClientManager;
         this._subAgentRegistry = subAgentRegistry;
         this._llmSettingsService = llmSettingsService;
+        _agentFactoryOptions = agentFactoryOptions;
+        _userInteractionManager = userInteractionManager;
         _logger = loggerFactory.CreateLogger<AgentFactory>();
     }
     
@@ -154,7 +161,7 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
     }
 
 #pragma warning disable MAAI001
-    private AIAgent CreateAgent(string workingDirectory, ShellExecutor persistentShell, bool persistHistory = true)
+    private AIAgent CreateAgent(string workingDirectory, ShellExecutor persistentShell, bool persistHistory = true, bool enableUserInteraction = true)
     {
         var workspaceContext = new WorkspaceContext(workingDirectory);
         var fixedWorkspaceAccessor = new FixedWorkspaceContextAccessor(workspaceContext);
@@ -185,6 +192,12 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             });
         var memoryPath = Path.Combine(workingDirectory, ProjectConstant.ConfigurationDirectory, "memory");
         var agentMd = ReadAgentsMd(workingDirectory);
+
+        // 用户交互工具按需挂载：仅 CLI 启用且仅会话级 Agent（子 Agent 不直接面向用户，不挂载）
+        AIContextProvider[] userInteractionProviders =
+            _agentFactoryOptions.EnableUserInteractionTools && enableUserInteraction
+                ? [new AskUserInteractionProvider(_userInteractionManager)]
+                : [];
 
         return _dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
         {
@@ -260,8 +273,9 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
                     })),
                 ToolContinuationSkippingAiContextProvider.Wrap(new TodoProvider()),
                 new McpToolsAIContextProvider(_mcpClientManager),
-                new SubAgentAiContextProvider(workingDirectory, _subAgentRegistry, (dir, shell) => CreateAgent(dir, shell, persistHistory: false)),
-                new CollectApprovalToolAiContextProvider()
+                new SubAgentAiContextProvider(workingDirectory, _subAgentRegistry, (dir, shell) => CreateAgent(dir, shell, persistHistory: false, enableUserInteraction: false)),
+                new CollectApprovalToolAiContextProvider(),
+                .. userInteractionProviders
             ],
             DisableTodoProvider = true,
             DisableCompaction = true,

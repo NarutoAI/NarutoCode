@@ -89,6 +89,20 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
                 CONSTRAINT "FK_ConversationRuntimeMessages_Conversations_ConversationId" FOREIGN KEY ("ConversationId") REFERENCES "Conversations" ("Id") ON DELETE CASCADE
             );
             """,
+            """
+            CREATE TABLE IF NOT EXISTS "AgentInteractions" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_AgentInteractions" PRIMARY KEY,
+                "SessionId" INTEGER NOT NULL,
+                "Type" INTEGER NOT NULL,
+                "Title" TEXT NOT NULL DEFAULT '',
+                "Payload" TEXT NOT NULL,
+                "Status" INTEGER NOT NULL,
+                "Result" TEXT NOT NULL DEFAULT '',
+                "CreatedAt" TEXT NOT NULL,
+                "CompletedAt" TEXT,
+                CONSTRAINT "FK_AgentInteractions_Conversations_SessionId" FOREIGN KEY ("SessionId") REFERENCES "Conversations" ("Id") ON DELETE CASCADE
+            );
+            """,
             "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Projects_WorkDirectory\" ON \"Projects\" (\"WorkDirectory\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Projects_SortOrder_UpdatedAt\" ON \"Projects\" (\"SortOrder\", \"UpdatedAt\" DESC);",
             "CREATE INDEX IF NOT EXISTS \"IX_Conversations_UpdatedAt\" ON \"Conversations\" (\"UpdatedAt\");",
@@ -99,7 +113,8 @@ public sealed class DbInitializer(SqliteConnectionFactory connectionFactory)
             "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId\" ON \"Messages\" (\"ConversationId\");",
             "CREATE INDEX IF NOT EXISTS \"IX_Messages_ConversationId_CreatedAt\" ON \"Messages\" (\"ConversationId\", \"CreatedAt\");",
             "CREATE INDEX IF NOT EXISTS \"IX_ConversationRuntimeMessages_ConversationId\" ON \"ConversationRuntimeMessages\" (\"ConversationId\");",
-            "CREATE INDEX IF NOT EXISTS \"IX_ConversationRuntimeMessages_ConversationId_Sequence\" ON \"ConversationRuntimeMessages\" (\"ConversationId\", \"Sequence\");"
+            "CREATE INDEX IF NOT EXISTS \"IX_ConversationRuntimeMessages_ConversationId_Sequence\" ON \"ConversationRuntimeMessages\" (\"ConversationId\", \"Sequence\");",
+            "CREATE INDEX IF NOT EXISTS \"IX_AgentInteractions_SessionId_Status\" ON \"AgentInteractions\" (\"SessionId\", \"Status\");"
         };
 
         foreach (var commandText in commands)

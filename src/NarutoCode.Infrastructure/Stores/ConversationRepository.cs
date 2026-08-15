@@ -1,5 +1,6 @@
 ﻿using System.Data.Common;
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
@@ -389,6 +390,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             cancellationToken);
 
         var resultList = new List<Message>();
+        // ask_user 工具调用与 FunctionResultContent 分别存于相邻的模型消息中，按 CallId 缓存后再投影为问答摘要。
+        var pendingUserInteractionCalls = new Dictionary<string, FunctionCallContent>(StringComparer.Ordinal);
         foreach (var (index,item) in messages.Index())
         {
             var contents = AIContentJsonSerializerContext.DeserializeContents(item.ModelContent);
@@ -403,8 +406,25 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 }
                 else if (itemContent is FunctionCallContent functionCallContent)
                 {
+                    if (IsUserInteractionFunction(functionCallContent.Name))
+                    {
+                        // 交互调用不显示内部工具名，等待其 FunctionResultContent 到达后投影为问题与答案。
+                        pendingUserInteractionCalls[functionCallContent.CallId] = functionCallContent;
+                        continue;
+                    }
+
                     messageType = AgentMessageType.ToolCall;
                     content = functionCallContent.Name;
+                }
+                else if (itemContent is FunctionResultContent functionResultContent)
+                {
+                    if (!pendingUserInteractionCalls.Remove(functionResultContent.CallId, out var interactionCall))
+                    {
+                        // 非用户交互工具结果保持隐藏，避免将运行时内部结果暴露到聊天区。
+                        continue;
+                    }
+
+                    content = FormatUserInteractionHistory(interactionCall, functionResultContent.Result);
                 }
                 else if (itemContent is ToolApprovalRequestContent
                          {
@@ -729,6 +749,58 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
     }
 
 
+
+    /// <summary>
+    /// 判断函数调用是否为需要在历史中投影为问答摘要的用户交互工具。
+    /// </summary>
+    /// <param name="functionName">函数名称。</param>
+    /// <returns>属于 ask_user 工具时返回 <see langword="true" />。</returns>
+    private static bool IsUserInteractionFunction(string functionName)
+    {
+        return functionName is "narutocode_ask_user_question" or "narutocode_ask_user_input"
+            // 兼容此前已持久化的旧工具调用，避免历史重载泄露工具名。
+            or "ask_user_question" or "ask_user_input";
+    }
+
+    /// <summary>
+    /// 将已完成的 ask_user 调用投影为用户可读的提问与回答，避免展示内部工具名。
+    /// </summary>
+    /// <param name="functionCall">原始函数调用，承载问题参数。</param>
+    /// <param name="result">工具返回给 Agent 的结果。</param>
+    /// <returns>聊天历史展示文本。</returns>
+    private static string FormatUserInteractionHistory(FunctionCallContent functionCall, object? result)
+    {
+        var question = TryGetFunctionArgument(functionCall.Arguments, "Question")
+                       ?? "Agent 向你发起提问";
+        var answer = Convert.ToString(result, CultureInfo.InvariantCulture);
+        return string.IsNullOrWhiteSpace(answer)
+            ? $"❓ {question}"
+            : $"❓ {question}{Environment.NewLine}↳ {answer}";
+    }
+
+    /// <summary>
+    /// 从函数参数中按名称读取文本值，兼容源生成反序列化后的 <see cref="JsonElement" />。
+    /// </summary>
+    /// <param name="arguments">函数参数。</param>
+    /// <param name="name">参数名称。</param>
+    /// <returns>参数文本；不存在或为空时返回 <see langword="null" />。</returns>
+    private static string? TryGetFunctionArgument(IDictionary<string, object?>? arguments, string name)
+    {
+        if (arguments is null)
+        {
+            return null;
+        }
+
+        var pair = arguments.FirstOrDefault(argument => string.Equals(argument.Key, name, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(pair.Key) || pair.Value is null)
+        {
+            return null;
+        }
+
+        return pair.Value is JsonElement { ValueKind: JsonValueKind.String } jsonElement
+            ? jsonElement.GetString()
+            : Convert.ToString(pair.Value, CultureInfo.InvariantCulture);
+    }
 
     private static string CreateMessagePreview(string value)
     {
