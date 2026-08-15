@@ -204,6 +204,15 @@ internal sealed class ChatTuiWindow : Window
             return true;
         }
 
+        // 聊天界面只有输入框需要键盘输入：Tab/Shift+Tab 不再在视图间切换焦点，
+        // 避免焦点落入消息列表后字母输入被视图吞掉导致"无法输入"；
+        // 同时把焦点交还输入框，兼作焦点丢失时的恢复手段。
+        if (key == Key.Tab || key == Key.Tab.WithShift)
+        {
+            inputField.SetFocus();
+            return true;
+        }
+
         return base.OnKeyDown(key);
     }
 

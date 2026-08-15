@@ -114,4 +114,30 @@ internal sealed class ChatInputField : TextView
 
         return base.OnKeyDown(key);
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// 聊天输入框不需要右键菜单；同时在鼠标释放/点击时防御性解除鼠标 grab，
+    /// 避免 Released 事件丢失后残留 grab，导致整个界面无法点击。
+    /// </remarks>
+    protected override bool OnMouseEvent(Mouse mouse)
+    {
+        // 拦截右键点击和 Ctrl+左键释放：Terminal.Gui 默认把这两者绑定到 Command.Context（弹出右键菜单），
+        // 聊天输入框的右键菜单没有实际用途，弹出后还会吞掉后续键盘与鼠标输入。
+        if (mouse.Flags.HasFlag(MouseFlags.RightButtonClicked)
+            || (mouse.Flags.HasFlag(MouseFlags.LeftButtonClicked) && mouse.Flags.HasFlag(MouseFlags.Ctrl)))
+        {
+            return true;
+        }
+
+        // 释放/点击时防御性解除鼠标 grab：当鼠标在终端窗口外松开、或事件被中文输入法等抢占时，
+        // TextView 的 Released 处理可能丢失，导致 grab 残留——此后所有点击都会被路由到输入框，
+        // 表现为"无法点击"。
+        if (mouse.IsReleased || mouse.IsSingleDoubleOrTripleClicked)
+        {
+            App?.Mouse.UngrabMouse();
+        }
+
+        return base.OnMouseEvent(mouse);
+    }
 }
