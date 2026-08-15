@@ -19,17 +19,30 @@ public class StreamingRetryChatClient(IChatClient innerClient) : DelegatingChatC
     /// <summary>
     /// 单个请求允许的自动重试次数（不含首次尝试）。
     /// </summary>
-    private const int MaxRetryAttempts = 2;
+    private const int MaxRetryAttempts = 3;
 
     /// <summary>
-    /// 重试前的等待时间，按尝试次数递增，避免刚断开立即重连再次失败。
+    /// 重试前的等待时间，按尝试次数递增（1s → 3s → 5s），避免刚断开立即重连再次失败。
     /// </summary>
-    private static readonly TimeSpan[] RetryDelays = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)];
+    private static readonly TimeSpan[] RetryDelays =
+        [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(5)];
 
     /// <summary>
-    /// 续写指令：要求模型基于回填的半截回复继续输出，避免重新组织开头导致重复。
+    /// 续写指令：明确告知模型这是网络断连后的自动重连（而非用户新发言），
+    /// 上一条 assistant 消息是被截断的自己输出，要求从断点无缝续写直至本次回复自然结束。
     /// </summary>
-    private const string ResumeInstruction = "请从刚才的断点继续回答，直接续写，不要重复已生成内容。";
+    private const string ResumeInstruction =
+        """
+        [SYSTEM NOTICE] The network connection was interrupted and has been automatically reconnected. This message is NOT user input — do not respond to or explain this notice.
+
+        The last assistant message above is your own output that was cut off mid-stream (the <think> block contains your reasoning before the interruption). It is unfinished.
+
+        Resume writing seamlessly from the exact point of interruption, and continue until this reply reaches its natural end:
+        - Your first character must be the immediate next content at the cut-off point; complete words, code lines, or list items even if they were broken mid-way
+        - Do not repeat, rewrite, or summarize anything already generated; do not reorganize the opening
+        - Do not apologize, explain the interruption, or output any transitional phrases (e.g. "OK, continuing")
+        - Keep the original formatting and tone (Markdown structure, code blocks, and list levels continue as-is)
+        """;
 
     private static readonly Lazy<ILogger?> Logger = new(ResolveLogger);
 
@@ -141,13 +154,18 @@ public class StreamingRetryChatClient(IChatClient innerClient) : DelegatingChatC
     }
 
     /// <summary>
-    /// 汇总已产出的正式文本（不含 thinking），用于回填续写上下文。
+    /// 汇总已产出的思考与正式文本，用于回填续写上下文。
+    /// 思考内容以 &lt;think&gt; 标签包裹回填：OpenAI 协议请求侧无法携带 reasoning 字段，
+    /// GLM 系列模型通过 &lt;think&gt; 文本约定识别历史思考，避免续写时丢失上下文重新组织输出。
     /// </summary>
     /// <param name="collected">本轮已产出的流式更新。</param>
-    /// <returns>正式输出文本拼接结果。</returns>
+    /// <returns>思考 + 正式文本拼接结果。</returns>
     private static string CollectPartialText(IReadOnlyList<ChatResponseUpdate> collected)
     {
         var builder = new StringBuilder();
+        // 是否正处于 <think> 块内：思考与正文交替输出时正确开闭标签
+        var inThinkBlock = false;
+
         foreach (var update in collected)
         {
             if (update.Contents is null)
@@ -157,11 +175,37 @@ public class StreamingRetryChatClient(IChatClient innerClient) : DelegatingChatC
 
             foreach (var content in update.Contents)
             {
-                if (content is TextContent {Text: { } text} && !string.IsNullOrEmpty(text))
+                switch (content)
                 {
-                    builder.Append(text);
+                    // 思考内容：进入 think 块后追加，多段思考合并在同一个块内
+                    case TextReasoningContent {Text: {Length: > 0} reasoning}:
+                        if (!inThinkBlock)
+                        {
+                            builder.Append("<think>");
+                            inThinkBlock = true;
+                        }
+
+                        builder.Append(reasoning);
+                        break;
+
+                    // 正式文本：先闭合未关闭的 think 块再追加
+                    case TextContent {Text: {Length: > 0} text}:
+                        if (inThinkBlock)
+                        {
+                            builder.Append("</think>");
+                            inThinkBlock = false;
+                        }
+
+                        builder.Append(text);
+                        break;
                 }
             }
+        }
+
+        // 流在思考阶段中断时闭合标签，避免回填文本出现未闭合的 <think>
+        if (inThinkBlock)
+        {
+            builder.Append("</think>");
         }
 
         return builder.ToString();
