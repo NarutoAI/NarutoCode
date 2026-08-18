@@ -31,19 +31,20 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
     {
         var instructions =
             """
-            # 用户交互
+            ## 用户交互
 
             你可以通过 `narutocode_ask_user_question` 与 `narutocode_ask_user_input` 工具向用户发起提问，用户会在界面弹窗中作答，工具返回其回答后你再继续。
 
-            ## 何时使用
+            ### 何时使用
             - 存在多种有效实现方案，且取舍会显著影响结果时。
             - 缺少关键参数（路径、名称、版本、格式等）无法安全继续时。
             - 用户明确要求先确认再执行时。
 
-            ## 使用约束
+            ### 使用约束
             - 能从上下文、代码或用户消息推断的信息，不要提问。
             - 需要确认多个相互独立的关键决策时，优先一次调用 `narutocode_ask_user_question` 并传入 `questions`；界面会在一张问卷中统一收集答案，避免逐题等待。
             - `questions` 一次提供 2-4 道选择题，每题提供 2-4 个选项；题目 id 与选项 id 使用简短英文，展示文本使用中文；界面固定提供可选的补充说明输入区。
+            - 每道选择题的选项列表最后一个必须固定为「其它」选项（id=`other`，label=`其它`），保证用户始终能表达选项之外的想法；用户选择「其它」时通常会在补充说明中写明具体意图，应结合补充说明理解。
             - 只有一个关键问题时使用单题 `question`；无选项的自由文本仍使用 `narutocode_ask_user_input`。
             - 用户取消回答时，基于已有信息继续或说明无法继续的原因，不要立即重复追问。
             """;
@@ -69,7 +70,7 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
     /// <summary>
     /// ask_user_question 工具体：校验参数 → 构造交互请求 → 挂起等待用户应答 → 返回给模型的应答文本。
     /// </summary>
-    [Description("向用户提出问题：提供 options 时渲染为带可选补充说明的选择问卷，省略时为开放式提问。适用于存在多种有效方案或缺少关键参数时。")]
+    [Description("向用户提出问题：提供 options 时渲染为带可选补充说明的选择问卷（自动追加「其它」兜底选项），省略时为开放式提问。适用于存在多种有效方案或缺少关键参数时。")]
     private static async Task<string> AskQuestionCoreAsync(
         IUserInteractionManager interactionManager,
         AskUserQuestionRequest request,
@@ -112,7 +113,12 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
             return optionsError;
         }
 
-        // 有选项为选择题，无选项为开放式提问
+        // 有选项为选择题（自动追加「其它」兜底选项），无选项为开放式提问
+        if (options.Count > 0)
+        {
+            options = EnsureOtherOption(options);
+        }
+
         var type = options.Count > 0 ? UserInteractionType.Selection : UserInteractionType.Question;
         var singleInteraction = new UserInteractionRequest(
             sessionId, type, request.Title ?? string.Empty, request.Question, request.Multiple, options);
@@ -180,7 +186,8 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
                 return optionsError ?? "questions 中每题必须提供 2-4 个选项。";
             }
 
-            values.Add(new UserInteractionQuestion(id, question, options, request.Multiple));
+            // 自动追加「其它」兜底选项：用户可选择预定义选项之外的意图并通过补充说明阐述。
+            values.Add(new UserInteractionQuestion(id, question, EnsureOtherOption(options), request.Multiple));
         }
 
         questions = values;
@@ -217,9 +224,42 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
             values.Add(new UserInteractionOption(id, label));
         }
 
+        // 兜底补齐「其它」选项：模型漏加时自动追加，保证用户始终能表达选项之外的想法。
+        if (!seenIds.Contains(OtherOptionId))
+        {
+            values.Add(new UserInteractionOption(OtherOptionId, "其它"));
+        }
+
         options = values;
         return null;
     }
+
+    /// <summary>
+    /// 确保选择题包含「其它」兜底选项：模型遗漏时自动追加为最后一项，
+    /// 保证用户永远可以选择预定义选项之外的意图（配合补充说明阐述）。
+    /// </summary>
+    /// <param name="options">原始选项集合。</param>
+    /// <returns>包含「其它」选项的选项集合。</returns>
+    private static IReadOnlyList<UserInteractionOption> EnsureOtherOption(IReadOnlyList<UserInteractionOption> options)
+    {
+        // 已提供等价选项（id=other 或展示文本为「其它」）时不重复追加。
+        var hasOther = options.Any(option =>
+            string.Equals(option.Id, "other", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(option.Label, "其它", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(option.Label, "其他", StringComparison.OrdinalIgnoreCase));
+        if (hasOther)
+        {
+            return options;
+        }
+
+        // 追加固定「其它」选项；id 使用英文保持与既有选项约定一致。
+        return [.. options, new UserInteractionOption("other", "其它")];
+    }
+
+    /// <summary>
+    /// 「其它」选项的固定标识：选择题兜底选项，用户选择后可经补充说明表达具体意图。
+    /// </summary>
+    private const string OtherOptionId = "other";
 
     /// <summary>
     /// 将交互结果格式化为返回给模型的文本：选择题映射为"展示文本(id)"，取消时给出后续行为指引。
