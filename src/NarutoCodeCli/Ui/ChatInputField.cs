@@ -1,4 +1,5 @@
-﻿using Terminal.Gui.Drivers;
+﻿using System.Drawing;
+using Terminal.Gui.Drivers;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
@@ -152,6 +153,51 @@ internal sealed class ChatInputField : TextView
             App?.Mouse.UngrabMouse();
         }
 
-        return base.OnMouseEvent(mouse);
+        var handled = base.OnMouseEvent(mouse);
+
+        // Terminal.Gui 2.4.17 的 TextView 对宽字符已计算显示列宽，但只在宽度大于 2 时
+        // 才按字符中点修正插入位置。中文等两个终端列宽字符不会进入该分支，点击右半格仍会
+        // 落在字符前。普通单击完成基类的焦点和鼠标状态处理后，按实际终端列宽重新定位。
+        if (handled && mouse.Flags == MouseFlags.LeftButtonClicked && mouse.Position is { } position)
+        {
+            SetInsertionPointFromDisplayColumn(position);
+        }
+
+        return handled;
+    }
+
+    /// <summary>
+    /// 根据鼠标在当前视口中的显示列设置插入点，确保双列宽字符的右半格落在字符之后。
+    /// </summary>
+    /// <param name="position">相对输入框视口的鼠标位置。</param>
+    private void SetInsertionPointFromDisplayColumn(Point position)
+    {
+        var row = Math.Clamp(Viewport.Y + position.Y, 0, Math.Max(0, Lines - 1));
+        var line = GetLine(row);
+        var targetColumn = Math.Max(0, Viewport.X + position.X);
+        var displayColumn = 0;
+        var insertionPoint = 0;
+
+        foreach (var cell in line)
+        {
+            // 使用 TextView 公开的列宽计算，保持 Tab 与组合字符的框架语义。
+            var width = Math.Max(1, GetColumnsWidth([cell]));
+            if (targetColumn < displayColumn + width)
+            {
+                // 点击宽字符的右半格时，把光标放到该字符之后；左半格则放在之前。
+                if (targetColumn - displayColumn >= (width + 1) / 2)
+                {
+                    insertionPoint++;
+                }
+
+                break;
+            }
+
+            displayColumn += width;
+            insertionPoint++;
+        }
+
+        InsertionPoint = new Point(insertionPoint, row);
+        SetNeedsDraw();
     }
 }

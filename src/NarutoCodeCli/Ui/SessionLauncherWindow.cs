@@ -285,12 +285,12 @@ internal sealed class SessionLauncherWindow : Window
 
     /// <summary>
     /// 计算当前终端高度能够完整展示的历史会话数量。
-    /// 每个会话固定占两行，头部和底部操作提示保持固定。
+    /// 每个会话固定占三行：标题、关键统计和最近消息；头部和底部操作提示保持固定。
     /// </summary>
     private int GetVisibleHistoryItemCount()
     {
-        var availableRowCount = Math.Max(2, Viewport.Height - 2 - HistoryHeaderRowCount - HistoryFooterRowCount);
-        return Math.Max(1, availableRowCount / 2);
+        var availableRowCount = Math.Max(3, Viewport.Height - 2 - HistoryHeaderRowCount - HistoryFooterRowCount);
+        return Math.Max(1, availableRowCount / 3);
     }
 
     private IReadOnlyList<(string Text, UiTextStyle Style)> BuildHubRows()
@@ -369,18 +369,30 @@ internal sealed class SessionLauncherWindow : Window
             ? "暂无用户消息"
             : summary.LastUserMessagePreview;
 
+        // 最近消息独占一行，避免窄窗口中它被统计字段挤到可视区域之外。
         rows.Add(($" {marker}{summary.Title}", titleStyle));
-        rows.Add(($"     {FormatRelativeTime(summary.UpdatedAt)}  |  {summary.MessageCount} 条消息  |  {FormatTokenUsage(summary)}  |  {preview}", metaStyle));
+        rows.Add(($"     {FormatRelativeTime(summary.UpdatedAt)}  |  {summary.MessageCount} 条消息  |  {FormatTokenUsage(summary)}", metaStyle));
+        rows.Add(($"     {preview}", metaStyle));
     }
 
     private static string FormatTokenUsage(ConversationSummary summary)
     {
-        return $"总计 {FormatTokenCount(summary.TokenCount)} · 最近 {FormatTokenCount(summary.LastUsageTokenCount)}";
+        return $"总 {FormatTokenCount(summary.TokenCount)} · 最近 {FormatTokenCount(summary.LastUsageTokenCount)}";
     }
 
     private static string FormatTokenCount(long tokenCount)
     {
-        return tokenCount <= 0 ? "0 tokens" : $"{tokenCount:N0} tokens";
+        if (tokenCount < 1_000)
+        {
+            return $"{tokenCount}t";
+        }
+
+        if (tokenCount < 1_000_000)
+        {
+            return $"{tokenCount / 1_000d:0.#}K";
+        }
+
+        return $"{tokenCount / 1_000_000d:0.#}M";
     }
 
     private static string FormatPreview(ConversationSummary summary)

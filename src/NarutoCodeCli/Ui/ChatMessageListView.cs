@@ -41,6 +41,7 @@ internal sealed class ChatMessageListView : View
     public ChatMessageListView()
     {
         CanFocus = true;
+        SetScheme(TuiStyles.GetCanvasScheme());
     }
 
     /// <summary>
