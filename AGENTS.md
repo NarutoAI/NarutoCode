@@ -1,4 +1,4 @@
-# 项目信息
+﻿# 项目信息
 
 当前项目是一个基于 [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) 开发的智能体编程工具，项目作为TUI的形式来编写和使用，核心场景：**通过 Agent 在终端中编程、执行任务、管理会话**
 
@@ -24,6 +24,7 @@
 - 新增或修改代码必须保留清晰的 XML 注释，公开 DTO、枚举、接口方法和服务方法尤其需要说明用途。
 - 当写一个复杂的代码块的时候，一定要补上行注释，说明每一个逻辑的意思
 - [日志](doc/logging.md) - LoggerMessage 源生成器、日志规范、使用示例
+- [JSON 序列化](doc/json-source-generation.md) - JsonSerializerContext 源生成器、类型注册、调用规范、NativeAOT 兼容
 
 
 ## 项目分层约束
