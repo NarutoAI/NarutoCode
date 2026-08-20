@@ -23,6 +23,7 @@ internal sealed class ChatMessageListView : View
     private readonly List<Label> lineLabels = [];
     private IReadOnlyList<ChatMessage>? messages;
     private int lastRenderWidth;
+    private int lastViewportHeight;
     private int renderedMessageCount;
 
     /// <summary>
@@ -86,6 +87,20 @@ internal sealed class ChatMessageListView : View
     {
         base.OnSubViewsLaidOut(e);
 
+        // 视口高度变化（交互抽屉预留/恢复底部空间）：原本贴底显示时滚动到新底部，保持最新内容可见
+        var currentViewportHeight = Math.Max(1, Viewport.Height);
+        if (currentViewportHeight != lastViewportHeight)
+        {
+            // 用变化前的视口高度判断是否原本贴底（内容高度未变，仅视口伸缩）
+            var wasAtBottom = Viewport.Location.Y >= Math.Max(0, GetContentSize().Height - lastViewportHeight);
+            lastViewportHeight = currentViewportHeight;
+            if (wasAtBottom && messages is { Count: > 0 })
+            {
+                ScrollToOffset(int.MaxValue);
+                SetNeedsDraw();
+            }
+        }
+
         // 尚无消息时仅记录宽度，等首条消息到达时按真实宽度渲染
         if (messages is null || messages.Count == 0)
         {
@@ -137,11 +152,21 @@ internal sealed class ChatMessageListView : View
 
     protected override bool OnKeyDown(Key key)
     {
+        return ScrollByKey(key) || base.OnKeyDown(key);
+    }
+
+    /// <summary>
+    /// 按滚动按键滚动消息区：↑↓ 微调、PgUp/PgDn 翻页、Home/End 跳转首尾。
+    /// 供本视图键盘事件与交互弹窗转发（弹窗模态期间用户仍可滚动查看历史消息）复用。
+    /// </summary>
+    /// <param name="key">滚动按键。</param>
+    /// <returns>按键属于滚动键并被消费时返回 <see langword="true" />。</returns>
+    public bool ScrollByKey(Key key)
+    {
         var viewportHeight = Math.Max(1, Viewport.Height);
         var contentHeight = GetContentSize().Height;
         var current = Viewport.Location.Y;
         var target = current;
-        var handled = true;
 
         if (key == Key.CursorUp)
         {
@@ -170,12 +195,7 @@ internal sealed class ChatMessageListView : View
         }
         else
         {
-            handled = false;
-        }
-
-        if (!handled)
-        {
-            return base.OnKeyDown(key);
+            return false;
         }
 
         ScrollToOffset(target);
@@ -199,6 +219,15 @@ internal sealed class ChatMessageListView : View
         }
 
         return base.OnMouseEvent(mouse);
+    }
+
+    /// <summary>
+    /// 滚轮滚动消息区；供交互弹窗模态期间转发滚轮事件复用。
+    /// </summary>
+    /// <param name="up">是否向上滚动（查看更早消息）。</param>
+    public void ScrollByWheel(bool up)
+    {
+        ScrollBy(up ? -WheelScrollStep : WheelScrollStep);
     }
 
     private void ScrollBy(int delta)

@@ -153,7 +153,7 @@ internal sealed class TuiChatApplication(
             {
                 AddPendingInteractionTraceMessage(request);
                 chatWindow.UpdateState(sessionState);
-                RunInteractionDialog(app, request, cancellationToken);
+                RunInteractionDialog(app, request, chatWindow, cancellationToken);
             });
             return Task.CompletedTask;
         };
@@ -175,8 +175,9 @@ internal sealed class TuiChatApplication(
     /// </summary>
     /// <param name="app">Terminal.Gui 应用实例。</param>
     /// <param name="request">交互请求。</param>
+    /// <param name="chatWindow">聊天主窗口；弹窗模态期间转发滚动按键翻看历史消息。</param>
     /// <param name="cancellationToken">运行取消令牌（Ctrl+C 链路）。</param>
-    private void RunInteractionDialog(IApplication app, UserInteractionRequest request, CancellationToken cancellationToken)
+    private void RunInteractionDialog(IApplication app, UserInteractionRequest request, ChatTuiWindow chatWindow, CancellationToken cancellationToken)
     {
         try
         {
@@ -186,18 +187,24 @@ internal sealed class TuiChatApplication(
             if (request.Questions.Count > 0)
             {
                 var dialog = new BatchInteractionDialog(
-                    app, request, requestOperationCancel: () => cancellationCoordinator.TryCancelCurrentOperation());
+                    app, request, chatWindow,
+                    requestOperationCancel: () => cancellationCoordinator.TryCancelCurrentOperation());
                 using var cancellationRegistration = cancellationToken.Register(
                     () => app.Invoke(() => app.RequestStop(dialog)));
+                // 抽屉打开期间收缩消息区到抽屉上方，最新输出不被遮挡
+                chatWindow.ReserveBottomRows(dialog.DrawerHeight);
                 app.Run(dialog);
                 result = dialog.InteractionResult;
             }
             else
             {
                 var dialog = new InteractionDialog(
-                    app, request, requestOperationCancel: () => cancellationCoordinator.TryCancelCurrentOperation());
+                    app, request, chatWindow: chatWindow,
+                    requestOperationCancel: () => cancellationCoordinator.TryCancelCurrentOperation());
                 using var cancellationRegistration = cancellationToken.Register(
                     () => app.Invoke(() => app.RequestStop(dialog)));
+                // 底部抽屉样式才预留空间；居中输入弹窗不改变消息区布局
+                chatWindow.ReserveBottomRows(dialog.DrawerHeight);
                 app.Run(dialog);
                 result = dialog.InteractionResult;
             }
@@ -215,6 +222,11 @@ internal sealed class TuiChatApplication(
                 request.Id,
                 new UserInteractionResult(request.Id, UserInteractionStatus.Cancelled, string.Empty),
                 CancellationToken.None);
+        }
+        finally
+        {
+            // 弹窗关闭后恢复消息区完整高度
+            chatWindow.ReserveBottomRows(0);
         }
     }
 

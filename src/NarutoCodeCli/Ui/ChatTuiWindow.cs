@@ -46,6 +46,10 @@ internal sealed class ChatTuiWindow : Window
     private bool inputFocusInitialized;
     private int renderedDividerWidth = -1;
     private const int InputAreaHeightRows = 4;
+    // 底部固定区域总行数：待发图片栏(1) + 输入面板(4) + 状态(1) + 快捷键(1) + 1 空行
+    private const int BottomFixedRows = 8;
+    // 交互抽屉打开期间为抽屉预留的底部行数；0 表示无抽屉，消息区使用完整高度。
+    private int reservedOverlayRows;
 
     /// <summary>
     /// 用户请求退出（Ctrl+C 且无运行中任务）时触发。
@@ -109,7 +113,8 @@ internal sealed class ChatTuiWindow : Window
         messageList.X = 0;
         messageList.Y = 4;
         messageList.Width = Dim.Fill();
-        messageList.Height = Dim.Fill(Dim.Absolute(8));
+        // 底部固定区域 + 抽屉预留：抽屉打开时收缩，避免最新输出被抽屉遮挡
+        messageList.Height = Dim.Fill(Dim.Absolute(BottomFixedRows + reservedOverlayRows));
         messageList.StateChanged += RefreshStatus;
 
         // 底部固定区域：待发图片栏 + 四行输入面板 + 状态 + 快捷键栏，直接贴齐底部。
@@ -167,6 +172,54 @@ internal sealed class ChatTuiWindow : Window
         messageList.UpdateMessages(sessionState.Messages);
         RefreshHeader();
         RefreshStatus();
+    }
+
+    /// <summary>
+    /// 交互弹窗模态期间转发滚动按键到消息区：PgUp/PgDn/Home/End 翻看历史消息，
+    /// 弹窗自身按键（↑↓/Space/Tab/Enter）不受影响。
+    /// </summary>
+    /// <param name="key">滚动按键。</param>
+    /// <returns>按键被消息区消费时返回 <see langword="true" />。</returns>
+    public bool ScrollMessagesByKey(Key key)
+    {
+        // 仅转发与问卷操作不冲突的翻页/跳转键，↑↓ 保留给问卷选项导航
+        if (key != Key.PageUp && key != Key.PageDown && key != Key.Home && key != Key.End)
+        {
+            return false;
+        }
+
+        return messageList.ScrollByKey(key);
+    }
+
+    /// <summary>
+    /// 交互弹窗模态期间转发滚轮到消息区，滚动查看历史消息。
+    /// </summary>
+    /// <param name="up">是否向上滚动（查看更早消息）。</param>
+    public void ScrollMessagesByWheel(bool up)
+    {
+        messageList.ScrollByWheel(up);
+    }
+
+    /// <summary>
+    /// 交互抽屉打开期间为其预留底部空间：消息区收缩到抽屉上方并跟随到底部，
+    /// <summary>
+    /// 交互抽屉打开期间在消息区底部预留指定行数（抽屉高度），消息重排到抽屉上方避免遮挡；
+    /// 传 0 恢复原始布局。
+    /// </summary>
+    /// <param name="rows">需要预留的行数。</param>
+    public void ReserveBottomRows(int rows)
+    {
+        reservedOverlayRows = Math.Max(0, rows);
+        // 消息区底部额外让出抽屉高度，抽屉悬浮区域不再渲染消息内容
+        messageList.Height = Dim.Fill(Dim.Absolute(BottomFixedRows + reservedOverlayRows));
+        messageList.SetNeedsLayout();
+        SetNeedsLayout();
+        SetNeedsDraw();
+        if (reservedOverlayRows > 0)
+        {
+            // 抽屉打开时跟随到底部：最新输出显示在抽屉上方
+            messageList.ScrollToBottom();
+        }
     }
 
     /// <summary>

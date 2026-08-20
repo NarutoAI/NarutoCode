@@ -33,6 +33,12 @@ internal sealed class InteractionSupplementField : TextView
     public Func<Key, bool>? NavigationKeyHandler { get; set; }
 
     /// <summary>
+    /// 消息区滚动按键回调：PgUp/PgDn/Home/End 转发给主窗口消息区，
+    /// 输入框聚焦时用户仍可翻看历史输出；返回 <see langword="true" /> 表示已消费。
+    /// </summary>
+    public Func<Key, bool>? ScrollKeyHandler { get; set; }
+
+    /// <summary>
     /// 创建补充说明输入框，默认启用多行编辑与自动折行。
     /// </summary>
     public InteractionSupplementField()
@@ -73,6 +79,13 @@ internal sealed class InteractionSupplementField : TextView
         if (key == Key.Tab.WithShift)
         {
             TabRequested?.Invoke(false);
+            return true;
+        }
+
+        // 消息区滚动键优先转发：补充说明聚焦时 PgUp/PgDn/Home/End 不移动光标，而是翻看历史消息。
+        if ((key == Key.PageUp || key == Key.PageDown || key == Key.Home || key == Key.End)
+            && ScrollKeyHandler?.Invoke(key) == true)
+        {
             return true;
         }
 

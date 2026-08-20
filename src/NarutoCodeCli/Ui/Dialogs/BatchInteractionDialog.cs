@@ -19,9 +19,12 @@ internal sealed class BatchInteractionDialog : Dialog
 
     private readonly IApplication app;
     private readonly UserInteractionRequest request;
+    private readonly ChatTuiWindow? chatWindow;
     private readonly Action? requestOperationCancel;
     private readonly List<Label> optionLabels = [];
     private readonly Label questionLabel;
+    // 题目第二行：小窗口下题目折行时承接剩余文本，题目区固定两行、选项从第三行开始
+    private readonly Label questionSecondLabel;
     private readonly int[] selectedIndexes;
     private readonly bool[][] checkedStates;
     // 按题缓存补充说明文本：切题时保存当前题、恢复目标题，提交时写入对应题目的结果。
@@ -38,14 +41,21 @@ internal sealed class BatchInteractionDialog : Dialog
     public UserInteractionResult? InteractionResult { get; private set; }
 
     /// <summary>
+    /// 抽屉占用的行数；主窗口据此收缩消息区，避免最新输出被抽屉遮挡。
+    /// </summary>
+    public int DrawerHeight { get; private set; }
+
+    /// <summary>
     /// 创建批量选择问卷抽屉。
     /// </summary>
     /// <param name="app">Terminal.Gui 应用实例。</param>
     /// <param name="request">包含批量题目的交互请求。</param>
+    /// <param name="chatWindow">聊天主窗口；模态期间转发 PgUp/PgDn/Home/End 滚动历史消息。</param>
     /// <param name="requestOperationCancel">Ctrl+C 时取消当前 Agent 运行的回调。</param>
     public BatchInteractionDialog(
         IApplication app,
         UserInteractionRequest request,
+        ChatTuiWindow? chatWindow = null,
         Action? requestOperationCancel = null)
     {
         if (request.Questions.Count == 0)
@@ -55,6 +65,7 @@ internal sealed class BatchInteractionDialog : Dialog
 
         this.app = app;
         this.request = request;
+        this.chatWindow = chatWindow;
         this.requestOperationCancel = requestOperationCancel;
         selectedIndexes = new int[request.Questions.Count];
         checkedStates = request.Questions.Select(question => new bool[question.Options.Count]).ToArray();
@@ -72,6 +83,16 @@ internal sealed class BatchInteractionDialog : Dialog
             Height = 1
         };
         Add(questionLabel);
+
+        // 题目折行后的第二行；题目较短时保持空文本，不占视觉空间
+        questionSecondLabel = new Label
+        {
+            X = 2,
+            Y = 1,
+            Width = Dim.Fill(Dim.Absolute(4)),
+            Height = 1
+        };
+        Add(questionSecondLabel);
 
         for (var index = 0; index < request.Questions.Max(question => question.Options.Count); index++)
         {
@@ -105,11 +126,13 @@ internal sealed class BatchInteractionDialog : Dialog
         supplementField.CancelRequested += CancelInteraction;
         // 输入框聚焦时方向键/空格仍路由回选项区，避免问卷操作被文本编辑吞掉。
         supplementField.NavigationKeyHandler = HandleOptionKey;
+        // 补充说明聚焦时翻页/跳转键转发给主窗口消息区，用户可在等待作答时回看历史输出。
+        supplementField.ScrollKeyHandler = key => chatWindow?.ScrollMessagesByKey(key) ?? false;
         Add(supplementField);
 
         var hint = new Label
         {
-            Text = "Tab 下一题    Shift+Tab 上一题    ↑↓ 选择    Space 确认/勾选    Enter 提交    Esc 取消",
+            Text = "Tab 下一题    Shift+Tab 上一题    ↑↓ 选择    Space 确认/勾选    Enter 提交    PgUp/PgDn 看消息    Esc 取消",
             X = 2,
             Y = Pos.AnchorEnd(1),
             Width = Dim.Fill(Dim.Absolute(4)),
@@ -166,7 +189,32 @@ internal sealed class BatchInteractionDialog : Dialog
             return true;
         }
 
+        // 模态期间翻页/跳转键转发给消息区：用户可在等待作答时回看历史输出（↑↓ 已归问卷选项导航）。
+        if (chatWindow?.ScrollMessagesByKey(key) == true)
+        {
+            return true;
+        }
+
         return base.OnKeyDown(key);
+    }
+
+    /// <inheritdoc />
+    protected override bool OnMouseEvent(Mouse mouse)
+    {
+        // 滚轮转发给消息区：弹窗打开时滚动查看历史消息。
+        if (chatWindow is not null && mouse.Flags.HasFlag(MouseFlags.WheeledUp))
+        {
+            chatWindow.ScrollMessagesByWheel(up: true);
+            return true;
+        }
+
+        if (chatWindow is not null && mouse.Flags.HasFlag(MouseFlags.WheeledDown))
+        {
+            chatWindow.ScrollMessagesByWheel(up: false);
+            return true;
+        }
+
+        return base.OnMouseEvent(mouse);
     }
 
     /// <inheritdoc />
@@ -266,7 +314,12 @@ internal sealed class BatchInteractionDialog : Dialog
     private void RefreshQuestion()
     {
         var question = request.Questions[questionIndex];
-        questionLabel.Text = $"{questionIndex + 1}/{request.Questions.Count}  {question.Question}";
+        // 题目按抽屉内容宽度折为最多两行：小窗口下自动换行，避免单行溢出被截断
+        var prefix = $"{questionIndex + 1}/{request.Questions.Count}  ";
+        var wrapWidth = Math.Max(12, SafeWindowWidth() - 8);
+        var (firstLine, secondLine) = WrapQuestionText(prefix, question.Question, wrapWidth);
+        questionLabel.Text = firstLine;
+        questionSecondLabel.Text = secondLine;
 
         for (var index = 0; index < optionLabels.Count; index++)
         {
@@ -342,7 +395,7 @@ internal sealed class BatchInteractionDialog : Dialog
     /// </summary>
     private void ClearValidationHint()
     {
-        hintLabel.Text = "Tab 下一题    Shift+Tab 上一题    ↑↓ 选择    Space 确认/勾选    Enter 提交    Esc 取消";
+        hintLabel.Text = "Tab 下一题    Shift+Tab 上一题    ↑↓ 选择    Space 确认/勾选    Enter 提交    PgUp/PgDn 看消息    Esc 取消";
         hintLabel.SetScheme(TuiStyles.GetScheme(UiTextStyle.Subtle));
     }
 
@@ -376,6 +429,8 @@ internal sealed class BatchInteractionDialog : Dialog
     private void ApplyGeometry()
     {
         var height = Math.Min(15, Math.Max(12, SafeWindowHeight() - ChatInputPanelRows));
+        // 暴露抽屉高度给宿主窗口，用于在消息区底部预留同等空间
+        DrawerHeight = height;
         X = 0;
         Y = Pos.AnchorEnd(height + ChatInputPanelRows);
         Width = Dim.Fill();
@@ -395,5 +450,69 @@ internal sealed class BatchInteractionDialog : Dialog
         {
             return 24;
         }
+    }
+
+    /// <summary>
+    /// 安全读取终端宽度；不可用时使用默认宽度。
+    /// </summary>
+    private static int SafeWindowWidth()
+    {
+        try
+        {
+            return Console.WindowWidth;
+        }
+        catch (IOException)
+        {
+            return 80;
+        }
+    }
+
+    /// <summary>
+    /// 将题目文本按内容宽度折为最多两行：首行带题号前缀，第二行续写，超出部分以省略号截断，
+    /// 保证小窗口下题目完整可读且抽屉布局稳定。
+    /// </summary>
+    /// <param name="prefix">题号前缀。</param>
+    /// <param name="text">题目正文。</param>
+    /// <param name="width">可用显示宽度。</param>
+    /// <returns>首行与第二行文本。</returns>
+    private static (string FirstLine, string SecondLine) WrapQuestionText(string prefix, string text, int width)
+    {
+        // 首行可用宽度扣除题号前缀；正文按字符宽度切分（CJK 按字符计，保守不溢出）
+        var firstCut = CutAtWordBoundary(text, Math.Max(4, width - prefix.Length));
+        var firstLine = prefix + firstCut.Text;
+        if (firstCut.Remainder.Length == 0)
+        {
+            return (firstLine, string.Empty);
+        }
+
+        // 第二行预留 1 列缩进对齐正文；仍有剩余时截断加省略号
+        var secondCut = CutAtWordBoundary(firstCut.Remainder, Math.Max(4, width - 1));
+        var secondLine = secondCut.Remainder.Length == 0
+            ? secondCut.Text
+            : secondCut.Text.TrimEnd() + "…";
+        return (firstLine, $" {secondLine}");
+    }
+
+    /// <summary>
+    /// 在目标宽度内切出一段文本：优先在空格处断行，连续 CJK/长词按宽度硬切。
+    /// </summary>
+    /// <param name="text">原始文本。</param>
+    /// <param name="width">目标显示宽度。</param>
+    /// <returns>切出的文本与剩余文本。</returns>
+    private static (string Text, string Remainder) CutAtWordBoundary(string text, int width)
+    {
+        if (text.Length <= width)
+        {
+            return (text, string.Empty);
+        }
+
+        // 在宽度内寻找最后一个空格作为断点；找不到（连续 CJK/长标识符）则按宽度硬切
+        var cutIndex = text.LastIndexOf(' ', Math.Min(width, text.Length - 1));
+        if (cutIndex <= 0)
+        {
+            cutIndex = width;
+        }
+
+        return (text[..cutIndex].TrimEnd(), text[cutIndex..].TrimStart());
     }
 }

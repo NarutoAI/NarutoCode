@@ -41,6 +41,8 @@ internal sealed class InteractionDialog : Dialog
     private readonly IApplication app;
     private readonly UserInteractionRequest request;
     private readonly Action? requestOperationCancel;
+    // 宿主聊天窗口：模态期间把翻页/滚轮转发给消息区，用户可回看历史输出。
+    private readonly ChatTuiWindow? chatWindow;
     private readonly List<Label> optionLabels = [];
     private readonly bool[] checkedStates;
     private readonly List<string> questionLines;
@@ -57,21 +59,29 @@ internal sealed class InteractionDialog : Dialog
     public UserInteractionResult? InteractionResult { get; private set; }
 
     /// <summary>
+    /// 底部抽屉样式下占用的行数；主窗口据此收缩消息区避免最新输出被遮挡。非抽屉样式为 0。
+    /// </summary>
+    public int DrawerHeight { get; private set; }
+
+    /// <summary>
     /// 创建交互弹窗。
     /// </summary>
     /// <param name="app">Terminal.Gui 应用实例（用于停止模态会话）。</param>
     /// <param name="request">交互请求。</param>
     /// <param name="style">弹窗几何样式；省略时使用 <see cref="CurrentStyle" />。</param>
     /// <param name="requestOperationCancel">Ctrl+C 时请求中止当前运行任务的回调（走现有取消链路）。</param>
+    /// <param name="chatWindow">宿主聊天窗口；提供后弹窗模态期间可转发滚动到消息区。</param>
     public InteractionDialog(
         IApplication app,
         UserInteractionRequest request,
         InteractionDialogStyle? style = null,
-        Action? requestOperationCancel = null)
+        Action? requestOperationCancel = null,
+        ChatTuiWindow? chatWindow = null)
     {
         this.app = app;
         this.request = request;
         this.requestOperationCancel = requestOperationCancel;
+        this.chatWindow = chatWindow;
         checkedStates = new bool[request.Options.Count];
 
         Title = string.IsNullOrWhiteSpace(request.Title) ? "❯ agent 提问" : $"❯ {request.Title}";
@@ -83,7 +93,8 @@ internal sealed class InteractionDialog : Dialog
         var effectiveStyle = request.Type == UserInteractionType.Selection
             ? InteractionDialogStyle.BottomDrawer
             : style ?? CurrentStyle;
-        questionLines = WrapText(request.Question, Math.Max(24, GetContentWidth(effectiveStyle) - 4));
+        // 折行宽度下限压到 16 列：小窗口下按实际可用宽度折行，避免文本溢出弹窗
+        questionLines = WrapText(request.Question, Math.Max(16, GetContentWidth(effectiveStyle) - 4));
         BuildContent();
         ApplyGeometry(effectiveStyle);
     }
@@ -126,7 +137,34 @@ internal sealed class InteractionDialog : Dialog
             return true;
         }
 
+        // 翻页/跳转键转发给消息区：弹窗模态期间用户仍可翻看历史输出（↑↓/Space/Tab/Enter 不受影响）。
+        if (chatWindow is not null
+            && (key == Key.PageUp || key == Key.PageDown || key == Key.Home || key == Key.End)
+            && chatWindow.ScrollMessagesByKey(key))
+        {
+            return true;
+        }
+
         return base.OnKeyDown(key);
+    }
+
+    /// <inheritdoc />
+    protected override bool OnMouseEvent(Mouse mouse)
+    {
+        // 滚轮转发给消息区：弹窗打开时滚动查看历史消息。
+        if (chatWindow is not null && mouse.Flags.HasFlag(MouseFlags.WheeledUp))
+        {
+            chatWindow.ScrollMessagesByWheel(up: true);
+            return true;
+        }
+
+        if (chatWindow is not null && mouse.Flags.HasFlag(MouseFlags.WheeledDown))
+        {
+            chatWindow.ScrollMessagesByWheel(up: false);
+            return true;
+        }
+
+        return base.OnMouseEvent(mouse);
     }
 
     /// <summary>
@@ -243,6 +281,8 @@ internal sealed class InteractionDialog : Dialog
             supplementField.CancelRequested += CancelInteraction;
             // 输入框聚焦时方向键/空格仍路由回选项区，避免问卷操作被文本编辑吞掉。
             supplementField.NavigationKeyHandler = HandleOptionKey;
+            // 补充说明聚焦时翻页/跳转键转发给消息区，翻看历史输出。
+            supplementField.ScrollKeyHandler = key => chatWindow?.ScrollMessagesByKey(key) ?? false;
             Add(supplementField);
             y += 3;
         }
@@ -265,9 +305,9 @@ internal sealed class InteractionDialog : Dialog
         y++;
         var hint = request.Type == UserInteractionType.Selection
             ? (request.Multiple
-                ? "↑↓ 移动    Space 勾选    Tab 补充说明    Enter 提交    Esc 取消"
-                : "↑↓ 选择    Tab 补充说明    Enter 提交    Esc 取消")
-            : "输入内容后 Enter 确认    Esc 取消";
+                ? "↑↓ 移动    Space 勾选    Tab 补充说明    Enter 提交    PgUp/PgDn 看消息    Esc 取消"
+                : "↑↓ 选择    Tab 补充说明    Enter 提交    PgUp/PgDn 看消息    Esc 取消")
+            : "输入内容后 Enter 确认    PgUp/PgDn 看消息    Esc 取消";
         AddContentLabel(hint, y, UiTextStyle.Subtle);
     }
 
@@ -315,6 +355,11 @@ internal sealed class InteractionDialog : Dialog
             ? Math.Max(7, SafeWindowHeight() - ChatInputPanelRows)
             : Math.Max(7, SafeWindowHeight() - 2);
         var height = Math.Min(Math.Max(contentRows + 2, minimumHeight), availableHeight);
+        // 底部抽屉样式暴露实际高度，供宿主窗口在消息区底部预留同等空间；居中/全屏样式不遮挡底部无需预留。
+        DrawerHeight = style == InteractionDialogStyle.BottomDrawer ? height : 0;
+
+        // 仅底部抽屉需要主窗口预留空间；居中/全屏样式不改变消息区布局
+        DrawerHeight = style == InteractionDialogStyle.BottomDrawer ? height : 0;
 
         switch (style)
         {
@@ -344,14 +389,14 @@ internal sealed class InteractionDialog : Dialog
     }
 
     /// <summary>
-    /// 计算指定样式的内容宽度。
+    /// 计算指定样式的内容宽度；下限 20 列保证小窗口下按实际屏宽折行而不是固定 40 列溢出。
     /// </summary>
     private static int GetContentWidth(InteractionDialogStyle style)
     {
         var screenWidth = SafeWindowWidth();
         return style == InteractionDialogStyle.Centered
-            ? Math.Clamp(screenWidth - 8, 40, 80)
-            : Math.Max(40, screenWidth - 4);
+            ? Math.Clamp(screenWidth - 8, 20, 80)
+            : Math.Max(20, screenWidth - 4);
     }
 
     /// <summary>
