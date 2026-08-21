@@ -5,7 +5,7 @@ namespace NarutoCode.Infrastructure.AIAgents;
 /// <summary>
 /// 会话专属 Agent、Session 与持久 Shell 的运行时容器。
 /// </summary>
-internal sealed class ConversationAgentRuntime(
+public sealed class ConversationAgentRuntime(
     AIAgent agent,
     IAsyncDisposable persistentShell) : IAsyncDisposable
 {
@@ -38,7 +38,7 @@ internal sealed class ConversationAgentRuntime(
     public void Invalidate() => Interlocked.Exchange(ref _isInvalid, 1);
 
     /// <summary>
-    /// 释放持久 Shell。会话锁保留至池关闭，避免正在等待的调用方访问已释放的信号量。
+    /// 释放持久 Shell。会话锁不随释放销毁，避免正在等待的调用方访问已释放的信号量。
     /// </summary>
     public ValueTask DisposeAsync()
     {

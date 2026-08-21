@@ -1,17 +1,19 @@
 ﻿<Project>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.Agents.AI.Anthropic" Version="1.16.0-preview.260730.1" />
-    <PackageVersion Include="Microsoft.Agents.AI.LocalCodeAct" Version="1.16.0-preview.260730.1" />
-    <PackageVersion Include="Microsoft.Agents.AI.Tools.Shell" Version="1.16.0-preview.260730.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Anthropic" Version="1.18.0-preview.260818.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.LocalCodeAct" Version="1.18.0-preview.260818.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Tools.Shell" Version="1.18.0-preview.260818.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.10.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.9" />
-    <PackageVersion Include="ModelContextProtocol" Version="2.0.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <PackageVersion Include="MSTest" Version="4.0.2" />
-    <PackageVersion Include="Microsoft.Agents.AI" Version="1.16.0" />
+    <PackageVersion Include="Microsoft.Agents.AI" Version="1.18.0" />
     <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="1.9.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.Harness" Version="1.16.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.16.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Harness" Version="1.18.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.18.0" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
     <PackageVersion Include="Serilog" Version="4.3.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />

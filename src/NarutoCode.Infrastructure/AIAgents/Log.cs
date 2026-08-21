@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using NarutoCode.Infrastructure.AIAgents.Composition;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
@@ -7,24 +8,6 @@ namespace NarutoCode.Infrastructure.AIAgents;
 /// </summary>
 internal static partial class Log
 {
-    [LoggerMessage(
-        EventId = 0,
-        Level = LogLevel.Information,
-        Message = "已创建工作目录 Agent 运行时池：{WorkingDirectory}。")]
-    public static partial void WorkspaceAgentPoolCreated(ILogger logger, string workingDirectory);
-
-    [LoggerMessage(
-        EventId = 1,
-        Level = LogLevel.Information,
-        Message = "正在回收空闲工作目录 Agent 运行时池：{WorkingDirectory}。")]
-    public static partial void WorkspaceAgentPoolEvicting(ILogger logger, string workingDirectory);
-
-    [LoggerMessage(
-        EventId = 2,
-        Level = LogLevel.Debug,
-        Message = "工作目录 Agent 运行时池已被回收，正在重新获取：{WorkingDirectory}。")]
-    public static partial void WorkspaceAgentPoolReacquiring(ILogger logger, string workingDirectory);
-
     [LoggerMessage(
         EventId = 3,
         Level = LogLevel.Information,
@@ -46,32 +29,20 @@ internal static partial class Log
     [LoggerMessage(
         EventId = 6,
         Level = LogLevel.Debug,
-        Message = "已获取会话 Agent Runtime 租约：工作目录 {WorkingDirectory}，会话 {SessionId}，活跃租约数 {ActiveLeaseCount}。")]
-    public static partial void ConversationAgentLeaseAcquired(ILogger logger, string workingDirectory, long sessionId, int activeLeaseCount);
+        Message = "已获取会话 Agent Runtime 租约：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
+    public static partial void ConversationAgentLeaseAcquired(ILogger logger, string workingDirectory, long sessionId);
 
     [LoggerMessage(
         EventId = 7,
         Level = LogLevel.Debug,
-        Message = "已释放会话 Agent Runtime 租约：工作目录 {WorkingDirectory}，会话 {SessionId}，活跃租约数 {ActiveLeaseCount}。")]
-    public static partial void ConversationAgentLeaseReleased(ILogger logger, string workingDirectory, long sessionId, int activeLeaseCount);
-
-    [LoggerMessage(
-        EventId = 8,
-        Level = LogLevel.Information,
-        Message = "正在释放工作目录 Agent 运行时池：{WorkingDirectory}，会话 Runtime 数 {RuntimeCount}，活跃租约数 {ActiveLeaseCount}。")]
-    public static partial void WorkspaceAgentPoolDisposing(ILogger logger, string workingDirectory, int runtimeCount, int activeLeaseCount);
-
-    [LoggerMessage(
-        EventId = 9,
-        Level = LogLevel.Warning,
-        Message = "重置会话 Agent Runtime 时未找到工作目录运行时池：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
-    public static partial void WorkspaceAgentPoolNotFoundForReset(ILogger logger, string workingDirectory, long sessionId);
+        Message = "已释放会话 Agent Runtime 租约：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
+    public static partial void ConversationAgentLeaseReleased(ILogger logger, string workingDirectory, long sessionId);
 
     [LoggerMessage(
         EventId = 10,
         Level = LogLevel.Information,
-        Message = "正在释放 AgentFactory：工作目录池数量 {WorkspacePoolCount}")]
-    public static partial void AgentFactoryDisposing(ILogger logger, int workspacePoolCount);
+        Message = "正在释放 AgentFactory：会话 Runtime 数 {RuntimeCount}")]
+    public static partial void AgentFactoryDisposing(ILogger logger, int runtimeCount);
 
     [LoggerMessage(
         EventId = 11,
@@ -97,4 +68,28 @@ internal static partial class Log
         Message = "模型流式请求第 {Attempt} 次尝试传输断连（已产出 {Count} 个内容片段），{DelaySeconds}s 后自动恢复。")]
     public static partial void StreamingRequestRetrying(
         ILogger logger, Exception exception, int attempt, int count, double delaySeconds);
+
+    [LoggerMessage(
+        EventId = 15,
+        Level = LogLevel.Debug,
+        Message = "贡献者 {ContributorName} 不参与 {Profile} 档案装配，已跳过。")]
+    public static partial void ContributorSkipped(ILogger logger, string contributorName, AgentProfile profile);
+
+    [LoggerMessage(
+        EventId = 16,
+        Level = LogLevel.Warning,
+        Message = "重置会话 Agent Runtime 时未找到缓存条目：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
+    public static partial void ConversationRuntimeNotFoundForReset(ILogger logger, string workingDirectory, long sessionId);
+
+    [LoggerMessage(
+        EventId = 17,
+        Level = LogLevel.Information,
+        Message = "会话 Agent Runtime 缓存条目被驱逐：工作目录 {WorkingDirectory}，会话 {SessionId}，原因 {Reason}。")]
+    public static partial void ConversationRuntimeEvicted(ILogger logger, string workingDirectory, long sessionId, Microsoft.Extensions.Caching.Memory.EvictionReason reason);
+
+    [LoggerMessage(
+        EventId = 18,
+        Level = LogLevel.Warning,
+        Message = "会话 Agent Runtime 后台释放失败：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
+    public static partial void ConversationRuntimeDisposalFailed(ILogger logger, Exception exception, string workingDirectory, long sessionId);
 }

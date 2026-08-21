@@ -11,6 +11,8 @@ using NarutoCode.Domain.Interactions;
 using NarutoCode.Domain.LlmContextAccessors;
 using NarutoCode.Infrastructure.AIAgents;
 using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
+using NarutoCode.Infrastructure.AIAgents.Composition;
+using NarutoCode.Infrastructure.AIAgents.Composition.Contributors;
 using NarutoCode.Infrastructure.AIAgents.CompactionStrategys;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.AIAgents.Mcp;
@@ -61,6 +63,26 @@ public static class InfrastructureServiceCollectionExtension
             services.AddSingleton<IAgentChatClient, MafAgentChatClient>();
             // 用户交互工具开关：决定会话级 Agent 是否挂载 ask_user_* 工具（仅 CLI 启用）
             services.AddSingleton(new AgentFactoryOptions(enableUserInteractionTools));
+
+            // Agent 编排贡献者：注册顺序即装配顺序
+            services.AddSingleton<IAgentContributor, CoreInstructionsContributor>();
+            services.AddSingleton<IAgentContributor, AgentModeContributor>();
+            services.AddSingleton<IAgentContributor, ChatHistoryContributor>();
+            services.AddSingleton<IAgentContributor, SkillsContributor>();
+            services.AddSingleton<IAgentContributor, ShellToolContributor>();
+            services.AddSingleton<IAgentContributor, LocalCodeActContributor>();
+            services.AddSingleton<IAgentContributor, TaskProviderContributor>();
+            services.AddSingleton<IAgentContributor, FileToolsContributor>();
+            services.AddSingleton<IAgentContributor, SvgRenderContributor>();
+            services.AddSingleton<IAgentContributor, FileMemoryContributor>();
+            services.AddSingleton<IAgentContributor, TodoContributor>();
+            services.AddSingleton<IAgentContributor, McpToolsContributor>();
+            services.AddSingleton<IAgentContributor, SubAgentDelegationContributor>();
+            services.AddSingleton<IAgentContributor, CollectApprovalContributor>();
+            services.AddSingleton<IAgentContributor, UserInteractionContributor>();
+            services.AddSingleton<IAgentContributor, LoopEvaluatorContributor>();
+            services.AddSingleton<AgentComposer>();
+            services.AddSingleton<ConversationRuntimeCache>();
             services.AddSingleton<IAgentFactory, AgentFactory>();
 
             // 子 Agent 编排：加载配置注册表并注册工作目录执行锁
