@@ -18,7 +18,7 @@ public sealed class SkillsContributor(ILoggerFactory loggerFactory) : IAgentCont
     public void Contribute(AgentCompositionContext context, AgentCompositionBuilder builder)
     {
         builder.AddAIContextProvider(new AgentSkillsProvider(
-            [ProjectConstant.SkillsDirectory,Path.Combine(context.WorkingDirectory,".agents","skills")],
+            [Path.Combine(context.WorkingDirectory,".agents","skills"),ProjectConstant.SkillsDirectory],
             scriptRunner: SkillSubprocessScriptRunner.RunAsync,
             loggerFactory: loggerFactory));
     }
