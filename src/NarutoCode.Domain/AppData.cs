@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using NarutoCode.Domain.Configurations;
+using NarutoCode.Domain.Enums;
 
 namespace NarutoCode.Domain;
 
@@ -98,6 +99,11 @@ public static class AppData
         if (vision is not { Enabled: true })
         {
             return;
+        }
+
+        if (!Enum.TryParse<LlmProtocol>(vision.Protocol, ignoreCase: true, out _))
+        {
+            throw new InvalidOperationException("视觉模型配置 vision.protocol 仅支持 OpenAIChat、OpenAIResponses 或 Anthropic。");
         }
 
         if (string.IsNullOrWhiteSpace(vision.Address))

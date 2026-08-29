@@ -11,7 +11,7 @@ public sealed class VisionConfiguration
     public bool Enabled { get; set; }
 
     /// <summary>
-    /// 视觉模型接入协议；当前仅支持 OpenAIChat（OpenAI 兼容 Chat Completions 多模态）。
+    /// 视觉模型接入协议，支持 OpenAIChat、OpenAIResponses 与 Anthropic。
     /// </summary>
     public string Protocol { get; set; } = "OpenAIChat";
 
