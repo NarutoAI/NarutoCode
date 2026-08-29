@@ -53,6 +53,7 @@ public class MafAgentChatClient : IAgentChatClient
     private async Task<AgentSession> CreateSessionAsync(
         AIAgent agent,
         ConversationSessionId sessionId,
+        ChatMessage pendingMessage,
         CancellationToken cancellationToken)
     {
         var messages = await LoadSessionHistoryMessagesAsync(_conversationRepository, sessionId, cancellationToken);
@@ -75,7 +76,9 @@ public class MafAgentChatClient : IAgentChatClient
             chatMessages.Add(itemChatMessage);
         }
 
-        return session.CreateSession(sessionId, PruneIncompleteToolCalls(chatMessages), conversation?.LastInputTokenCount);
+        return session.CreateSession(sessionId,
+            PruneIncompleteToolCalls(chatMessages, pendingMessage),
+            conversation?.LastInputTokenCount);
     }
 
     /// <summary>
@@ -126,8 +129,11 @@ public class MafAgentChatClient : IAgentChatClient
     /// 裁剪取消或异常中断后遗留的未完成工具调用，避免下一轮恢复会话时报缺少工具输出。
     /// </summary>
     /// <param name="messages">按历史顺序排列的聊天消息。</param>
+    /// <param name="pendingMessage">当前待发送的消息，用于识别尚未写入历史的审批响应。</param>
     /// <returns>可安全恢复给 Agent Framework 的历史消息。</returns>
-    private static List<ChatMessage> PruneIncompleteToolCalls(List<ChatMessage> messages)
+    internal static List<ChatMessage> PruneIncompleteToolCalls(
+        List<ChatMessage> messages,
+        ChatMessage? pendingMessage = null)
     {
         if (messages.Count == 0)
         {
@@ -166,7 +172,33 @@ public class MafAgentChatClient : IAgentChatClient
                     {
                         firstUnresolvedIndex = -1;
                     }
+
+                    continue;
                 }
+
+                if (content is ToolApprovalResponseContent toolApprovalResponseContent)
+                {
+                    // 审批响应同样代表对应工具调用已完成，不能将审批前的 FunctionCallContent 裁剪掉。
+                    unresolvedCallIds.Remove(toolApprovalResponseContent.ToolCall.CallId);
+                    if (unresolvedCallIds.Count == 0)
+                    {
+                        firstUnresolvedIndex = -1;
+                    }
+                }
+            }
+        }
+
+        if (pendingMessage?.Contents is {Count: > 0})
+        {
+            foreach (var content in pendingMessage.Contents.OfType<ToolApprovalResponseContent>())
+            {
+                // 当前审批响应尚未进入历史，但它会闭合对应的工具调用，需参与裁剪判断。
+                unresolvedCallIds.Remove(content.ToolCall.CallId);
+            }
+
+            if (unresolvedCallIds.Count == 0)
+            {
+                firstUnresolvedIndex = -1;
             }
         }
 
@@ -193,7 +225,11 @@ public class MafAgentChatClient : IAgentChatClient
         {
             chatMessage = await CreateChatMessageAsync(message);
             lease = await _agentFactory.AcquireCurrentConversationAsync(sessionId, cancellationToken);
-            lease.Session ??= await CreateSessionAsync(lease.Agent, sessionId, cancellationToken);
+            lease.Session ??= await CreateSessionAsync(
+                lease.Agent,
+                sessionId,
+                chatMessage,
+                cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
