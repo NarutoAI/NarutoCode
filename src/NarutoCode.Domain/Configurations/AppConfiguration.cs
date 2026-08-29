@@ -11,6 +11,7 @@ namespace NarutoCode.Domain.Configurations;
 [JsonSerializable(typeof(AppConfiguration))]
 [JsonSerializable(typeof(AppSettings))]
 [JsonSerializable(typeof(McpServerConfiguration))]
+[JsonSerializable(typeof(VisionConfiguration))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 internal partial class AppConfigurationContext : JsonSerializerContext
 {
@@ -35,6 +36,11 @@ public sealed class AppConfiguration
     /// MCP 服务配置集合，键为服务名称。
     /// </summary>
     public Dictionary<string, McpServerConfiguration> McpServers { get; set; } = [];
+
+    /// <summary>
+    /// 独立视觉模型配置；主模型不支持视觉时可配置小视觉模型识别图片，为 null 时该能力关闭。
+    /// </summary>
+    public VisionConfiguration? Vision { get; set; }
 
     /// <summary>
     /// 是否开启工具调用审批，默认关闭。

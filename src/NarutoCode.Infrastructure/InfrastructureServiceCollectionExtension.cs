@@ -77,6 +77,7 @@ public static class InfrastructureServiceCollectionExtension
             services.AddSingleton<IAgentContributor, FileToolsContributor>();
             services.AddSingleton<IAgentContributor, SvgRenderContributor>();
             services.AddSingleton<IAgentContributor, LocalImageUrlContributor>();
+            services.AddSingleton<IAgentContributor, VisionContributor>();
             services.AddSingleton<IAgentContributor, FileMemoryContributor>();
             services.AddSingleton<IAgentContributor, TodoContributor>();
             services.AddSingleton<IAgentContributor, McpToolsContributor>();

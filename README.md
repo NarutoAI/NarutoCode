@@ -38,6 +38,15 @@ NarutoCode 是一个在终端中使用的 Agent 编程工具。启动后，你�
       "maxOutputTokens": 8192
     }
   ],
+  "vision": {
+    "enabled": true,
+    "protocol": "OpenAIChat",
+    "address": "https://api.example.com/v1",
+    "apiKey": "YOUR_VISION_API_KEY",
+    "model": "qwen-vl-plus",
+    "maxOutputTokens": 1024,
+    "timeoutSeconds": 60
+  },
   "system": {
     "logLevel": "Error",
     "compactionThresholds": {
@@ -79,6 +88,26 @@ NarutoCode 是一个在终端中使用的 Agent 编程工具。启动后，你�
   "supportsVision": true
 }
 ```
+
+### 独立视觉模型配置
+
+当当前主模型的 `supportsVision` 为 `false` 时，可以通过可选的 `vision` 节点配置一个 OpenAI 兼容的多模态模型。配置有效后，Agent 会增加 `recognize_image` 工具，用于读取本地路径、`file://` 或 `http(s)://` 图片并把识别结果作为文本返回给主模型。
+
+```json
+{
+  "vision": {
+    "enabled": true,
+    "protocol": "OpenAIChat",
+    "address": "https://api.example.com/v1",
+    "apiKey": "YOUR_VISION_API_KEY",
+    "model": "qwen-vl-plus",
+    "maxOutputTokens": 1024,
+    "timeoutSeconds": 60
+  }
+}
+```
+
+`vision.enabled` 为 `true` 时，`address`、`apiKey` 和 `model` 必须全部填写；否则程序启动时会报告配置错误。当前独立视觉模型仅支持 `OpenAIChat` 协议。视觉模型会接收固定的系统提示词，以客观输出图片关键信息、可读文字（OCR）、界面状态和错误信息，供主模型继续处理。
 
 ### MCP 服务配置
 
@@ -145,7 +174,15 @@ NarutoCode 会额外使用运行时设置文件保存当前默认模型：
 | `llms[].model` | 是 | 要使用的模型名称。 |
 | `llms[].maxContextWindowTokens` | 否 | 最大上下文窗口 Token 数。 |
 | `llms[].maxOutputTokens` | 否 | 模型最大输出 Token 数，默认 `128000`。 |
-| `llms[].supportsVision` | 否 | 模型是否支持视觉输入，默认 `false`。为 `false` 时，发送给模型的聊天历史会过滤其中的图片内容（替换为 `[image]` 占位文本），图片输入功能不可用。 |
+| `llms[].supportsVision` | 否 | 模型是否支持直接视觉输入，默认 `false`。为 `false` 时，发送给模型的聊天历史会过滤图片内容（替换为 `[image]` 占位文本）；可额外配置 `vision` 节点，让 Agent 通过 `recognize_image` 工具调用独立视觉模型获取图片文本描述。 |
+| `vision` | 否 | 独立视觉模型配置。仅当 `vision.enabled` 为 `true` 且配置完整时启用图片识别工具。 |
+| `vision.enabled` | 否 | 是否启用独立视觉模型，默认 `false`。 |
+| `vision.protocol` | 否 | 视觉模型接入协议，当前仅支持 `OpenAIChat`，默认 `OpenAIChat`。 |
+| `vision.address` | 启用时必填 | 视觉模型服务地址，必须是完整 URL。 |
+| `vision.apiKey` | 启用时必填 | 视觉模型服务访问密钥。 |
+| `vision.model` | 启用时必填 | 要使用的视觉模型名称，例如 `qwen-vl-plus`、`glm-4v-flash`。 |
+| `vision.maxOutputTokens` | 否 | 单次图片识别最大输出 Token 数，默认 `1024`。 |
+| `vision.timeoutSeconds` | 否 | 视觉模型调用超时时间（秒），默认 `60`。 |
 | `system.logLevel` | 否 | 日志最小输出级别，支持 `Trace`、`Debug`、`Information`、`Warning`、`Error`、`Critical`；未配置或配置无效时默认 `Error`。 |
 | `system.compactionThresholds.imageCompaction` | 否 | 图片压缩触发阈值（相对于上下文窗口的比例），默认 `0.25`。当 Token 使用率达到上下文窗口的 25% 时触发图片压缩。 |
 | `system.compactionThresholds.toolEviction` | 否 | 工具结果压缩触发阈值（相对于上下文窗口的比例），默认 `0.6`。当 Token 使用率达到上下文窗口的 60% 时触发工具结果压缩。 |

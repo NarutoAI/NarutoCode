@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
@@ -65,6 +65,7 @@ namespace NarutoCode.Infrastructure.JsonSerializerContexts;
 [JsonSerializable(typeof(TaskListItemToolResult[]))]
 [JsonSerializable(typeof(SvgRenderToolResult))]
 [JsonSerializable(typeof(SvgRenderMetadataResult))]
+[JsonSerializable(typeof(VisionRecognitionToolResult))]
 internal sealed partial class AIContentJsonSerializerContext : JsonSerializerContext
 {
     /// <summary>

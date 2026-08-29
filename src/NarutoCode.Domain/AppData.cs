@@ -53,6 +53,7 @@ public static class AppData
         configuration.McpServers ??= [];
         EnsureLlmConfigurationsExists(configuration.Llms);
         ValidateLlmConfigurations(configuration.Llms);
+        ValidateVisionConfiguration(configuration.Vision);
 
         config = configuration;
     }
@@ -85,6 +86,33 @@ public static class AppData
             {
                 throw new InvalidOperationException($"模型厂商 provider 重复：{llm.Provider}");
             }
+        }
+    }
+
+    /// <summary>
+    /// 校验视觉模型配置：显式启用时必填字段必须齐全，避免运行期才暴露配置缺失。
+    /// </summary>
+    /// <param name="vision">视觉模型配置；为 null 或未启用时跳过校验。</param>
+    private static void ValidateVisionConfiguration(VisionConfiguration? vision)
+    {
+        if (vision is not { Enabled: true })
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(vision.Address))
+        {
+            throw new InvalidOperationException("视觉模型配置 vision.address 未填写。");
+        }
+
+        if (string.IsNullOrWhiteSpace(vision.ApiKey))
+        {
+            throw new InvalidOperationException("视觉模型配置 vision.apiKey 未填写。");
+        }
+
+        if (string.IsNullOrWhiteSpace(vision.Model))
+        {
+            throw new InvalidOperationException("视觉模型配置 vision.model 未填写。");
         }
     }
 
