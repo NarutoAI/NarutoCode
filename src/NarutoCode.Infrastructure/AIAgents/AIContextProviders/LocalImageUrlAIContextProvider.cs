@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Infrastructure.Images;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 
@@ -31,17 +32,20 @@ public sealed class LocalImageUrlAIContextProvider : AIContextProvider
     private readonly IImageUrlLoader _loader;
     private readonly AITool[] _tools;
 
+    private readonly ILlmSettingsService _llmSettingsService;
     /// <summary>
     /// 创建本地 URL 图片加载提供器。
     /// </summary>
     /// <param name="loader">图片来源加载器。</param>
-    public LocalImageUrlAIContextProvider(IImageUrlLoader loader)
+    public LocalImageUrlAIContextProvider(IImageUrlLoader loader,
+        ILlmSettingsService llmSettingsService)
     {
         _loader = loader ?? throw new ArgumentNullException(nameof(loader));
         _tools =
         [
             AIFunctionFactory.Create(LoadLocalImageUrl, serializerOptions: AIContentJsonSerializerContext.Default.Options)
         ];
+        _llmSettingsService=llmSettingsService;
     }
 
     /// <inheritdoc />
@@ -49,6 +53,14 @@ public sealed class LocalImageUrlAIContextProvider : AIContextProvider
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
+        // 纯文本模型看不到图片，挂载该工具只会产生无效调用，直接跳过
+        if (!_llmSettingsService.CurrentLlm.SupportsVision)
+        {
+            return ValueTask.FromResult(new AIContext
+            {
+                
+            });;
+        }
         return ValueTask.FromResult(new AIContext
         {
             Instructions = Instructions,

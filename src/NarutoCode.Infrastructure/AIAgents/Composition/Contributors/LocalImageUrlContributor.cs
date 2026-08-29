@@ -19,13 +19,7 @@ public sealed class LocalImageUrlContributor(
     /// <inheritdoc />
     public void Contribute(AgentCompositionContext context, AgentCompositionBuilder builder)
     {
-        // 纯文本模型看不到图片，挂载该工具只会产生无效调用，直接跳过
-        if (!llmSettingsService.CurrentLlm.SupportsVision)
-        {
-            return;
-        }
-
-        builder.AddAIContextProvider(new LocalImageUrlAIContextProvider(imageUrlLoader));
+        builder.AddAIContextProvider(new LocalImageUrlAIContextProvider(imageUrlLoader,llmSettingsService));
     }
 }
 #pragma warning restore MAAI001
