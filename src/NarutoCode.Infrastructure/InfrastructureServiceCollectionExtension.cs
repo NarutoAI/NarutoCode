@@ -18,6 +18,7 @@ using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 using NarutoCode.Infrastructure.AIAgents.Mcp;
 using NarutoCode.Infrastructure.AIAgents.SubAgents;
 using NarutoCode.Infrastructure.ChatClients;
+using NarutoCode.Infrastructure.Images;
 using NarutoCode.Infrastructure.Stores;
 
 namespace NarutoCode.Infrastructure;
@@ -45,6 +46,7 @@ public static class InfrastructureServiceCollectionExtension
 
             //注册动态聊天客户端
             services.AddSingleton<DynamicChatClient>();
+            services.AddSingleton<IImageUrlLoader, ImageUrlLoader>();
             services.AddSingleton<CompactionStrategyCoordinator>();
             services.AddSingleton<ILlmContextAccessor, LlmContextAccessor>();
             services.AddSingleton<ILlmSettingsService, LlmSettingsService>();
@@ -74,6 +76,7 @@ public static class InfrastructureServiceCollectionExtension
             services.AddSingleton<IAgentContributor, TaskProviderContributor>();
             services.AddSingleton<IAgentContributor, FileToolsContributor>();
             services.AddSingleton<IAgentContributor, SvgRenderContributor>();
+            services.AddSingleton<IAgentContributor, LocalImageUrlContributor>();
             services.AddSingleton<IAgentContributor, FileMemoryContributor>();
             services.AddSingleton<IAgentContributor, TodoContributor>();
             services.AddSingleton<IAgentContributor, McpToolsContributor>();
