@@ -88,15 +88,15 @@ internal sealed class ChatSessionState
     /// <returns>普通用户消息或工具审批响应消息。</returns>
     public AgentMessage CreateOutgoingMessage(string input)
     {
-        if (PendingToolApprovalRequest is not { } approvalRequest)
+        if (PendingToolApprovalRequest is { } approvalRequest)
         {
-            return new AgentMessage(AgentMessageType.Content, input);
+            return new AgentMessage(
+                AgentMessageType.ToolApprovalResponse,
+                input.Trim(),
+                approvalRequest.ToolApprovalContent);
         }
 
-        return new AgentMessage(
-            AgentMessageType.ToolApprovalResponse,
-            input.Trim(),
-            approvalRequest.ToolApprovalContent);
+        return new AgentMessage(AgentMessageType.Content, input);
     }
 
     /// <summary>

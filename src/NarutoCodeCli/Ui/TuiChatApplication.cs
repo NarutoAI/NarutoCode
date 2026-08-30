@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using NarutoCode.Application.Interactions;
+using NarutoCode.Domain;
 using NarutoCode.Domain.Configurations;
 using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
@@ -410,7 +411,8 @@ internal sealed class TuiChatApplication(
         }
         catch (OperationCanceledException) when (operationCancellationTokenSource.IsCancellationRequested)
         {
-            await conversationService.ResetRuntimeSessionAsync(sessionId, CancellationToken.None);
+            //取消的时候 不需要重置会话的状态  todo 待测试，这里要检验下 是否会出现 task清空
+             await conversationService.ResetRuntimeSessionAsync(sessionId, CancellationToken.None);
             assistantMessage.Append(new AgentMessage(AgentMessageType.Error, "当前操作已取消。"));
         }
         finally
@@ -787,13 +789,13 @@ internal sealed class TuiChatApplication(
             return true;
         }
 
-        // 当前模型不支持视觉时拒绝图片消息：图片会被后端过滤，发送后模型也看不到，
-        // 直接在此拦截并提示用户切换支持视觉的模型，避免白保存/白发送。
-        if (!llmSettingsService.CurrentLlm.SupportsVision)
+        // 主模型不支持视觉且未配置有效独立视觉模型时拒绝图片消息：图片会被后端过滤，发送后模型也看不到。
+        // 配置了有效 vision 时放行，由后端在发送前用小视觉模型把附件解析成文本再交给主模型。
+        if (!llmSettingsService.CurrentLlm.SupportsVision && AppData.Config.Vision?.IsValid != true)
         {
             message = default;
             displayContent = string.Empty;
-            error = "当前模型不支持图片输入（SupportsVision=false），请使用 /provider 切换支持视觉的模型。";
+            error = "当前模型不支持图片输入（SupportsVision=false），且未配置有效的独立视觉模型（vision），请使用 /provider 切换支持视觉的模型，或在 config.json 中启用 vision 配置。";
             return false;
         }
 

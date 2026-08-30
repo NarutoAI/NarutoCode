@@ -1,4 +1,5 @@
-﻿using NarutoCode.Domain.Configurations.Settings;
+﻿using NarutoCode.Domain;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
 using Terminal.Gui.App;
@@ -45,6 +46,8 @@ internal sealed class ChatTuiWindow : Window
     private int queuedMessageCount;
     private bool inputFocusInitialized;
     private int renderedDividerWidth = -1;
+    // 思考中动画的帧计数：每次 UpdateState 推进一次，用于状态栏 "● thinking." / ".."/ "..." 旋转。
+    private int thinkingFrame;
     private const int InputAreaHeightRows = 4;
     // 底部固定区域总行数：待发图片栏(1) + 输入面板(4) + 状态(1) + 快捷键(1) + 1 空行
     private const int BottomFixedRows = 8;
@@ -170,6 +173,16 @@ internal sealed class ChatTuiWindow : Window
         contextTokenUsage = sessionState.ContextTokenUsage;
         queuedMessageCount = pendingUserMessageQueue.CreateSnapshot().Count;
         messageList.UpdateMessages(sessionState.Messages);
+        // 推进思考中动画帧：每次刷新切换一个点动画（. / .. / ...），运行停止时停止推进
+        if (isOperationRunning)
+        {
+            thinkingFrame = unchecked(thinkingFrame + 1);
+        }
+        else
+        {
+            thinkingFrame = 0;
+        }
+
         RefreshHeader();
         RefreshStatus();
     }
@@ -359,11 +372,12 @@ internal sealed class ChatTuiWindow : Window
             return true;
         }
 
-        // 当前模型不支持视觉时直接拦截，避免白保存剪贴板图片；
-        // 提示后消费按键，防止图片二进制字节被当成文本塞进输入框
-        if (!llmSettingsService.CurrentLlm.SupportsVision)
+        // 主模型不支持视觉且未配置有效独立视觉模型时拦截，避免白保存剪贴板图片；
+        // 配置有效 vision 时放行，由后端先把图片解析成文本再发送给主模型。
+        // 拦截时仍消费按键，防止图片二进制字节被当成文本塞进输入框
+        if (!llmSettingsService.CurrentLlm.SupportsVision && AppData.Config.Vision?.IsValid != true)
         {
-            statusLabel.Text = "当前模型不支持图片输入，请切换支持视觉的模型";
+            statusLabel.Text = "当前模型不支持图片输入，请切换支持视觉的模型或配置 vision";
             SetNeedsDraw();
             return true;
         }
@@ -530,6 +544,14 @@ internal sealed class ChatTuiWindow : Window
         if (queuedMessageCount > 0)
         {
             parts.Add($"queued {queuedMessageCount}");
+        }
+
+        // 思考中动画：仅当 Agent 运行时在状态栏显示 ● thinking…（点动画由 thinkingFrame 推进）。
+        // 思考正文已不在消息区渲染，此处用来告诉用户模型仍在工作。
+        if (isOperationRunning)
+        {
+            var dots = new string('.', (thinkingFrame % 3) + 1);
+            parts.Add($"● thinking{dots}");
         }
 
         if (messageList.HasUnread)

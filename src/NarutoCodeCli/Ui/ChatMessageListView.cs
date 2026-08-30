@@ -273,7 +273,7 @@ internal sealed class ChatMessageListView : View
         var diffIndex = FirstVersionDiffIndex(messages);
         if (diffIndex < 0)
         {
-            // 内容未变化，无需重绘
+            // 内容未变化，但仍要确保活动指示器按当前状态更新
             return;
         }
 

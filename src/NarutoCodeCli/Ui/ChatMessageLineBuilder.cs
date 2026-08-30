@@ -58,15 +58,15 @@ internal static partial class ChatMessageLineBuilder
     }
 
     /// <summary>
-    /// 追加一条 Agent 分段消息的显示行（thinking/tool/审批/错误/普通内容）。
+    /// 追加一条 Agent 分段消息的显示行（tool/审批/错误/普通内容）。
+    /// Thinking 分段不再渲染到消息区，避免长推理占据屏幕；思考中状态由 ChatTuiWindow 状态栏指示。
     /// </summary>
     private static void AppendAgentMessage(List<StyledLine> lines, AgentMessage agentMessage, int width)
     {
         switch (agentMessage.Type)
         {
             case AgentMessageType.Thinking:
-                lines.Add(new StyledLine(UiTextStyle.Thinking, Indent + "… thinking"));
-                AppendMarkdownLines(lines, agentMessage.Content, UiTextStyle.Thinking, EventIndent, width - 2);
+                // 故意不渲染思考正文，避免长推理占据屏幕。
                 break;
 
             case AgentMessageType.ToolCall:
