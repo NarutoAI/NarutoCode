@@ -4,9 +4,13 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using NarutoCode.Application.Agents;
+using NarutoCode.Domain;
+using NarutoCode.Domain.Configurations;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
+using NarutoCode.Infrastructure.Vision;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
@@ -21,17 +25,24 @@ public class MafAgentChatClient : IAgentChatClient
 
     private readonly ILogger<MafAgentChatClient> _logger;
 
+    private readonly ILlmSettingsService _llmSettingsService;
+
     /// <summary>
     /// 初始化 <see cref="MafAgentChatClient" /> 实例。
     /// </summary>
     /// <param name="agentFactory">Agent 工厂。</param>
+    /// <param name="llmSettingsService">当前主模型设置服务，用于判断主模型是否支持视觉。</param>
     public MafAgentChatClient(IAgentFactory agentFactory,
-        IConversationRepository conversationRepository, ILogger<MafAgentChatClient> logger)
+        IConversationRepository conversationRepository,
+        ILlmSettingsService llmSettingsService,
+        ILogger<MafAgentChatClient> logger)
     {
         ArgumentNullException.ThrowIfNull(agentFactory);
+        ArgumentNullException.ThrowIfNull(llmSettingsService);
 
         _agentFactory = agentFactory;
         _conversationRepository = conversationRepository;
+        _llmSettingsService = llmSettingsService;
         _logger = logger;
     }
 
@@ -223,7 +234,7 @@ public class MafAgentChatClient : IAgentChatClient
 
         try
         {
-            chatMessage = await CreateChatMessageAsync(message);
+            chatMessage = await CreateChatMessageAsync(message, cancellationToken);
             lease = await _agentFactory.AcquireCurrentConversationAsync(sessionId, cancellationToken);
             lease.Session ??= await CreateSessionAsync(
                 lease.Agent,
@@ -364,11 +375,13 @@ public class MafAgentChatClient : IAgentChatClient
         return functionName is "narutocode_ask_user_question" or "narutocode_ask_user_input";
     }
 
-    private async Task<ChatMessage> CreateChatMessageAsync(AgentMessage message)
+    private async Task<ChatMessage> CreateChatMessageAsync(
+        AgentMessage message,
+        CancellationToken cancellationToken)
     {
         return message.Type switch
         {
-            AgentMessageType.Content => await CreateUserInputMessageAsync(message),
+            AgentMessageType.Content => await CreateUserInputMessageAsync(message, cancellationToken),
             AgentMessageType.ToolApprovalResponse => CreateToolApprovalResponseMessage(message),
             _ => throw new InvalidOperationException($"消息类型 {message.Type} 不能作为用户输入发送给 Agent。")
         };
@@ -376,15 +389,19 @@ public class MafAgentChatClient : IAgentChatClient
 
     /// <summary>
     /// 创建真实用户输入消息，并通过扩展属性与框架内部补充的 user 消息区分。
+    /// 主模型不支持视觉且独立视觉配置有效时，附件图片先经小视觉模型解析为文本再发送。
     /// </summary>
     /// <param name="message">用户输入消息。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>带有用户输入标记的聊天消息。</returns>
-    private static async Task<ChatMessage> CreateUserInputMessageAsync(AgentMessage message)
+    private async Task<ChatMessage> CreateUserInputMessageAsync(
+        AgentMessage message,
+        CancellationToken cancellationToken)
     {
         var chatMessage = message.Attachments.Count == 0
             ? new ChatMessage(ChatRole.User, message.Content)
-            : await CreateUserInputMessageWithAttachmentsAsync(message);
-        
+            : await CreateUserInputMessageWithAttachmentsAsync(message, cancellationToken);
+
         chatMessage.AdditionalProperties = new AdditionalPropertiesDictionary
         {
             [ChatMessageAdditionalPropertyNames.IsUserInput] = true
@@ -393,12 +410,27 @@ public class MafAgentChatClient : IAgentChatClient
     }
 
     /// <summary>
-    /// 创建用户图片附件信息
+    /// 创建用户图片附件消息：视觉主模型直接携带图片内容；
+    /// 纯文本主模型在独立视觉配置有效时，先把附件解析为文本再发送给主模型。
     /// </summary>
-    /// <param name="message"></param>
-    /// <returns></returns>
-    private static Task<ChatMessage> CreateUserInputMessageWithAttachmentsAsync(AgentMessage message)
+    /// <param name="message">用户输入消息。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>携带图片或图片解析文本的用户消息。</returns>
+    private async Task<ChatMessage> CreateUserInputMessageWithAttachmentsAsync(
+        AgentMessage message,
+        CancellationToken cancellationToken)
     {
+        // 纯文本主模型 + 有效独立视觉配置：附件先经小视觉模型转成文本，主模型只接收文本
+        if (NeedsVisionPreprocessing(_llmSettingsService.CurrentLlm.SupportsVision, AppData.Config.Vision))
+        {
+            var content = await RecognizeAttachmentsAsTextAsync(
+                message.Content,
+                message.Attachments,
+                new VisionChatClient(AppData.Config.Vision!),
+                cancellationToken).ConfigureAwait(false);
+            return new ChatMessage(ChatRole.User, content);
+        }
+
         var contents = new List<AIContent>();
         if (!string.IsNullOrWhiteSpace(message.Content))
         {
@@ -411,7 +443,70 @@ public class MafAgentChatClient : IAgentChatClient
             contents.Add(new DataContent(attachment.Data, attachment.MediaType));
         }
 
-        return Task.FromResult(new ChatMessage(ChatRole.User, contents));
+        return new ChatMessage(ChatRole.User, contents);
+    }
+
+    /// <summary>
+    /// 判断用户图片附件是否需要独立视觉模型预处理：主模型不支持视觉且视觉配置有效。
+    /// </summary>
+    /// <param name="supportsVision">当前主模型是否支持视觉。</param>
+    /// <param name="vision">独立视觉模型配置。</param>
+    /// <returns>需要预处理时返回 <see langword="true" />。</returns>
+    internal static bool NeedsVisionPreprocessing(bool supportsVision, VisionConfiguration? vision)
+    {
+        return !supportsVision && vision is { IsValid: true };
+    }
+
+    /// <summary>
+    /// 逐张调用独立视觉模型解析图片附件，拼接为纯文本主模型可消费的用户消息文本；
+    /// 单张识别失败降级为占位文本，不影响其余图片与原用户输入。
+    /// </summary>
+    /// <param name="content">用户原始文本输入，可为空。</param>
+    /// <param name="attachments">图片附件集合。</param>
+    /// <param name="visionClient">独立视觉模型客户端。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>原文本与各图片解析结果拼接后的消息文本。</returns>
+    internal static async Task<string> RecognizeAttachmentsAsTextAsync(
+        string content,
+        IReadOnlyList<AgentMessageAttachment> attachments,
+        IVisionChatClient visionClient,
+        CancellationToken cancellationToken)
+    {
+        var sections = new List<string>();
+        var userText = content.Trim();
+        if (userText.Length > 0)
+        {
+            sections.Add(userText);
+        }
+
+        // 串行识别：保证多图顺序稳定，并避免视觉端点并发限流
+        for (var index = 0; index < attachments.Count; index++)
+        {
+            var attachment = attachments[index];
+            // 用户文本作为识别上下文，帮助视觉模型聚焦与问题相关的内容
+            var prompt = userText.Length == 0
+                ? "请准确描述图片中的关键信息、可读文字（OCR）、界面元素和与用户问题相关的内容。"
+                : $"用户消息：{userText}\n请结合上述用户消息，准确描述图片中的关键信息、可读文字（OCR）、界面元素和相关内容。";
+
+            try
+            {
+                var description = await visionClient
+                    .RecognizeAsync(attachment.Data, attachment.MediaType, prompt, cancellationToken)
+                    .ConfigureAwait(false);
+                sections.Add($"[图片 {index + 1} 解析]\n{description.Trim()}");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // 单张失败保留占位文本，原用户输入与其余图片继续发送
+                sections.Add($"[图片 {index + 1} 解析失败]\n{ex.Message}");
+            }
+        }
+
+        return string.Join("\n\n", sections);
     }
 
     private ChatMessage CreateToolApprovalResponseMessage(AgentMessage message)

@@ -22,6 +22,7 @@
         <PackageReference Include="Microsoft.Agents.AI.OpenAI"/>
         <PackageReference Include="Microsoft.Agents.AI.Tools.Shell" />
         <PackageReference Include="Microsoft.Extensions.Caching.Memory"/>
+        <PackageReference Include="Microsoft.Extensions.Http"/>
         <PackageReference Include="Microsoft.Data.Sqlite"/>
         <PackageReference Include="ModelContextProtocol"/>
         <PackageReference Include="Serilog"/>

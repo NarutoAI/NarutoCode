@@ -2,34 +2,14 @@
 
 /// <summary>
 /// 图片来源加载器默认实现：分流 file:// / http(s):// / 纯本地路径，统一大小与 MIME 校验。
+/// HTTP 下载统一通过 IHttpClientFactory 的命名客户端获取，连接复用与生命周期由工厂管理。
 /// </summary>
-public sealed class ImageUrlLoader : IImageUrlLoader
+public sealed class ImageUrlLoader(IHttpClientFactory httpClientFactory) : IImageUrlLoader
 {
     /// <summary>
-    /// HTTP 下载超时时间。
+    /// 图片下载专用命名 HttpClient 标识；超时等策略在 DI 注册处统一配置。
     /// </summary>
-    private static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 可注入的 HttpClient 构造工厂；生产环境为 null（内部新建），单元测试注入 mock handler。
-    /// </summary>
-    private readonly Func<HttpMessageHandler>? _handlerFactory;
-
-    /// <summary>
-    /// 创建默认加载器。
-    /// </summary>
-    public ImageUrlLoader()
-    {
-    }
-
-    /// <summary>
-    /// 创建使用指定 handler 工厂的加载器（单元测试用）。
-    /// </summary>
-    /// <param name="handlerFactory">每次下载时构造 HttpMessageHandler 的工厂。</param>
-    internal ImageUrlLoader(Func<HttpMessageHandler> handlerFactory)
-    {
-        _handlerFactory = handlerFactory;
-    }
+    public const string HttpClientName = "image-url-loader";
 
     /// <inheritdoc />
     public async Task<ImageLoadResult> LoadAsync(string source, CancellationToken cancellationToken = default)
@@ -96,8 +76,8 @@ public sealed class ImageUrlLoader : IImageUrlLoader
     /// <returns>图片字节与媒体类型。</returns>
     private async Task<ImageLoadResult> LoadFromHttpAsync(Uri uri, CancellationToken ct)
     {
-        // 每次下载新建 HttpClient：视觉调用频次低，避免引入 IHttpClientFactory 依赖；测试时走注入的 handler
-        using var http = CreateHttpClient();
+        // 通过 HTTP 工厂获取命名客户端：handler 由工厂池化复用，超时在 DI 注册处配置
+        var http = httpClientFactory.CreateClient(HttpClientName);
         using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct)
             .ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
@@ -116,15 +96,5 @@ public sealed class ImageUrlLoader : IImageUrlLoader
         }
 
         return new ImageLoadResult(bytes, mediaType);
-    }
-
-    /// <summary>
-    /// 构造 HttpClient：生产用默认 handler，测试用注入工厂。
-    /// </summary>
-    private HttpClient CreateHttpClient()
-    {
-        return _handlerFactory is null
-            ? new HttpClient { Timeout = HttpTimeout }
-            : new HttpClient(_handlerFactory(), disposeHandler: true) { Timeout = HttpTimeout };
     }
 }

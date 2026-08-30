@@ -91,7 +91,7 @@ NarutoCode 是一个在终端中使用的 Agent 编程工具。启动后，你�
 
 ### 独立视觉模型配置
 
-当当前主模型的 `supportsVision` 为 `false` 时，可以通过可选的 `vision` 节点配置一个 OpenAI 兼容的多模态模型。配置有效后，Agent 会增加 `recognize_image` 工具，用于读取本地路径、`file://` 或 `http(s)://` 图片并把识别结果作为文本返回给主模型。
+当当前主模型的 `supportsVision` 为 `false` 时，可以通过可选的 `vision` 节点配置一个独立多模态模型。配置有效后会获得两项能力：Agent 增加 `recognize_image` 工具，用于读取本地路径、`file://` 或 `http(s)://` 图片并把识别结果作为文本返回给主模型；用户输入携带的图片附件（如 `/image` 命令）也会在发送前自动交给独立视觉模型解析成文本。
 
 ```json
 {
@@ -107,7 +107,9 @@ NarutoCode 是一个在终端中使用的 Agent 编程工具。启动后，你�
 }
 ```
 
-`vision.enabled` 为 `true` 时，`address`、`apiKey` 和 `model` 必须全部填写；否则程序启动时会报告配置错误。当前独立视觉模型仅支持 `OpenAIChat` 协议。视觉模型会接收固定的系统提示词，以客观输出图片关键信息、可读文字（OCR）、界面状态和错误信息，供主模型继续处理。
+`vision.enabled` 为 `true` 时，`address`、`apiKey` 和 `model` 必须全部填写；否则程序启动时会报告配置错误。`vision.protocol` 支持 `OpenAIChat`、`OpenAIResponses` 和 `Anthropic`，默认 `OpenAIChat`。视觉模型会接收固定的系统提示词，以客观输出图片关键信息、可读文字（OCR）、界面状态和错误信息，供主模型继续处理。
+
+用户图片附件的自动解析行为：主模型不支持视觉且 `vision` 配置有效时，附件图片会逐张解析，结果以 `[图片 N 解析]` 段落拼接在用户文字之后发送给主模型；单张图片解析失败会以 `[图片 N 解析失败]` 占位提示替代，不会中断发送。
 
 ### MCP 服务配置
 

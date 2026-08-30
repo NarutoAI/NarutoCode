@@ -46,6 +46,11 @@ public static class InfrastructureServiceCollectionExtension
 
             //注册动态聊天客户端
             services.AddSingleton<DynamicChatClient>();
+            // 图片下载专用命名 HttpClient：30 秒超时，连接池与生命周期由 HttpClientFactory 管理
+            services.AddHttpClient(ImageUrlLoader.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
             services.AddSingleton<IImageUrlLoader, ImageUrlLoader>();
             services.AddSingleton<CompactionStrategyCoordinator>();
             services.AddSingleton<ILlmContextAccessor, LlmContextAccessor>();
