@@ -81,23 +81,25 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
     }
 
     /// <summary>
-    /// 创建会话 Runtime：持久 Shell 与会话级 Agent 绑定，创建失败时回收 Shell。
+    /// 创建会话 Runtime：会话级 Shell 工厂跟踪本会话全部 Shell（主 Agent 持久 Shell、CodeReview、子 Agent 临时 Shell），
+    /// Runtime 释放时统一回收；创建失败时回收工厂已跟踪的 Shell。
     /// </summary>
     private ConversationAgentRuntime CreateConversationRuntime(string workingDirectory)
     {
-        var persistentShell = ShellExecutorFactory.Create(workingDirectory);
+        // 会话级 Shell 工厂：本会话内创建的全部 Shell 均纳入跟踪，随 Runtime 释放统一回收
+        var shellFactory = new ShellExecutorFactory(_loggerFactory);
         try
         {
             var runtime = new ConversationAgentRuntime(
-                CreateAgent(workingDirectory, persistentShell, AgentProfile.Session),
-                persistentShell);
+                CreateAgent(workingDirectory, shellFactory.Create(workingDirectory), shellFactory, AgentProfile.Session),
+                shellFactory);
             Log.ConversationAgentRuntimeCreated(_logger, workingDirectory);
             return runtime;
         }
         catch (Exception exception)
         {
             Log.ConversationAgentRuntimeCreationFailed(_logger, exception, workingDirectory);
-            persistentShell.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            shellFactory.DisposeAsync().AsTask().GetAwaiter().GetResult();
             throw;
         }
     }
@@ -106,14 +108,15 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
     /// 按身份档案装配 Agent：全部编排要素（指令、Provider、评估器、工具、历史）来自贡献者装配结果。
     /// </summary>
 #pragma warning disable MAAI001
-    private AIAgent CreateAgent(string workingDirectory, ShellExecutor persistentShell, AgentProfile profile)
+    private AIAgent CreateAgent(string workingDirectory, ShellExecutor persistentShell, IShellExecutorFactory shellFactory, AgentProfile profile)
     {
-        // 装配上下文携带子 Agent 递归工厂：子 Agent 复用同一装配管道（SubAgent 档案）
+        // 装配上下文携带子 Agent 递归工厂：子 Agent 复用同一装配管道（SubAgent 档案），Shell 工厂全会话共享
         var composition = _agentComposer.Compose(new AgentCompositionContext(
             workingDirectory,
             persistentShell,
+            shellFactory,
             profile,
-            (dir, shell) => CreateAgent(dir, shell, AgentProfile.SubAgent)));
+            (dir, shell) => CreateAgent(dir, shell, shellFactory, AgentProfile.SubAgent)));
 
         return _dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
         {

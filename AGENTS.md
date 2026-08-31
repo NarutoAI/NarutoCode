@@ -25,7 +25,7 @@
 - 当写一个复杂的代码块的时候，一定要补上行注释，说明每一个逻辑的意思
 - [日志](doc/logging.md) - LoggerMessage 源生成器、日志规范、使用示例
 - [JSON 序列化](doc/json-source-generation.md) - JsonSerializerContext 源生成器、类型注册、调用规范、NativeAOT 兼容
-
+- 每次增加完新的配置后，都需要更新`readme.md`文档
 
 ## 项目分层约束
 当前项目基于洋葱架构搭建

@@ -92,4 +92,22 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "会话 Agent Runtime 后台释放失败：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
     public static partial void ConversationRuntimeDisposalFailed(ILogger logger, Exception exception, string workingDirectory, long sessionId);
+
+    [LoggerMessage(
+        EventId = 19,
+        Level = LogLevel.Debug,
+        Message = "ShellExecutor 已创建并纳入会话跟踪：工作目录 {WorkingDirectory}")]
+    public static partial void ShellExecutorCreated(ILogger logger, string workingDirectory);
+
+    [LoggerMessage(
+        EventId = 20,
+        Level = LogLevel.Warning,
+        Message = "释放会话 ShellExecutor 失败")]
+    public static partial void ShellExecutorDisposeFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 21,
+        Level = LogLevel.Debug,
+        Message = "会话 Shell 工厂释放完成：共回收 {Count} 个 Shell 子进程")]
+    public static partial void ShellExecutorScopeDisposed(ILogger logger, int count);
 }

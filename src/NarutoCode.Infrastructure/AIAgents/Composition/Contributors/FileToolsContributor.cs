@@ -35,7 +35,9 @@ public sealed class FileToolsContributor(DynamicChatClient dynamicChatClient) : 
                     """
             });
 
-        builder.AddAIContextProvider(new CodeReviewAIContextProvider(dynamicChatClient, [fileAccessProvider]));
+        // CodeReview 审核 Shell 经会话工厂创建并绑定当前工作目录（git 命令在正确仓库执行），随会话统一回收
+        builder.AddAIContextProvider(new CodeReviewAIContextProvider(
+            dynamicChatClient, context.ShellFactory, context.WorkingDirectory, [fileAccessProvider]));
         builder.AddAIContextProvider(new FSTollsAiContextProvider(
             new FixedWorkspaceContextAccessor(new WorkspaceContext(context.WorkingDirectory))));
         builder.AddAIContextProvider(fileAccessProvider);

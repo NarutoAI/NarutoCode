@@ -20,13 +20,15 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
     /// </summary>
     /// <param name="rootWorkspace">当前根工作目录。</param>
     /// <param name="registry">子 Agent 注册表。</param>
+    /// <param name="shellFactory">会话 Shell 工厂：子 Agent 临时 Shell 纳入会话跟踪，随会话兜底回收。</param>
     /// <param name="createAgent">按工作目录创建不持久化历史的子 Agent 的工厂委托。</param>
     public SubAgentAiContextProvider(
         string rootWorkspace,
         SubAgentRegistry registry,
+        IShellExecutorFactory shellFactory,
         Func<string, ShellExecutor, AIAgent> createAgent)
     {
-        _context = BuildContext(rootWorkspace, registry, createAgent);
+        _context = BuildContext(rootWorkspace, registry, shellFactory, createAgent);
     }
 
     /// <inheritdoc />
@@ -40,7 +42,8 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
     /// 在构造时按当前根工作目录的可见子 Agent 构建不可变的 AI 上下文。
     /// </summary>
     private static AIContext BuildContext(
-        string rootWorkspace, SubAgentRegistry registry, Func<string, ShellExecutor, AIAgent> createAgent)
+        string rootWorkspace, SubAgentRegistry registry, IShellExecutorFactory shellFactory,
+        Func<string, ShellExecutor, AIAgent> createAgent)
     {
         var agents = registry.GetAvailableAgents(rootWorkspace);
         if (agents.Count == 0) return new AIContext();
@@ -100,7 +103,7 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
 
         // 创建绑定当前根工作目录的工具委托
         Task<string> Handler(DelegateAgentsRequest request, CancellationToken cancellationToken) =>
-            DelegateAgents(rootWorkspace, registry, createAgent, request, cancellationToken);
+            DelegateAgents(rootWorkspace, registry, shellFactory, createAgent, request, cancellationToken);
     }
 
     /// <summary>
@@ -110,6 +113,7 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
     private static async Task<string> DelegateAgents(
         string rootWorkspace,
         SubAgentRegistry registry,
+        IShellExecutorFactory shellFactory,
         Func<string, ShellExecutor, AIAgent> createAgent,
         DelegateAgentsRequest request,
         CancellationToken cancellationToken)
@@ -129,7 +133,7 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
 
         // 构造任务列表：未知 agentId 直接返回失败结果
         var tasks = request.Tasks.Select(x => available.TryGetValue(x.AgentId, out var agent)
-            ? ExecuteOneAsync(agent, x.Prompt, registry, createAgent, cancellationToken)
+            ? ExecuteOneAsync(agent, x.Prompt, registry, shellFactory, createAgent, cancellationToken)
             : Task.FromResult(new DelegateAgentTaskResult(x.AgentId, x.AgentId, false,
                 "当前根工作目录中不可用的子 Agent。"))).ToArray();
 
@@ -161,7 +165,8 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
     /// </summary>
     private static async Task<DelegateAgentTaskResult> ExecuteOneAsync(
         SubAgentDefinition definition, string prompt,
-        SubAgentRegistry registry, Func<string, ShellExecutor, AIAgent> createAgent,
+        SubAgentRegistry registry, IShellExecutorFactory shellFactory,
+        Func<string, ShellExecutor, AIAgent> createAgent,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -173,20 +178,28 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(registry.Limits.AgentExecutionTimeoutSeconds));
 
-            // 创建受限 Shell 并构造临时子 Agent（不持久化历史）
-            await using var shell = ShellExecutorFactory.Create(definition.Workspace);
-            var agent = createAgent(definition.Workspace, shell);
-            var session = await agent.CreateSessionAsync(timeout.Token);
-
-            // 流式收集子 Agent 输出
-            var output = new StringBuilder();
-            await foreach (var update in agent.RunStreamingAsync(
-                               new ChatMessage(ChatRole.User, prompt), session, cancellationToken: timeout.Token))
+            // 创建受限 Shell 并构造临时子 Agent（不持久化历史）；任务结束（含超时/异常）归还工厂并同步移除跟踪引用
+            var shell = shellFactory.Create(definition.Workspace);
+            try
             {
-                if (!string.IsNullOrEmpty(update.Text)) output.Append(update.Text);
-            }
+                var agent = createAgent(definition.Workspace, shell);
+                var session = await agent.CreateSessionAsync(timeout.Token);
 
-            return new DelegateAgentTaskResult(definition.Id, definition.Name, true, output.ToString());
+                // 流式收集子 Agent 输出
+                var output = new StringBuilder();
+                await foreach (var update in agent.RunStreamingAsync(
+                                   new ChatMessage(ChatRole.User, prompt), session, cancellationToken: timeout.Token))
+                {
+                    if (!string.IsNullOrEmpty(update.Text)) output.Append(update.Text);
+                }
+
+                return new DelegateAgentTaskResult(definition.Id, definition.Name, true, output.ToString());
+            }
+            finally
+            {
+                // 归还释放：先从工厂跟踪列表移除引用，再关闭底层子进程，避免已释放 Shell 的引用残留到会话结束
+                await shellFactory.ReleaseAsync(shell);
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

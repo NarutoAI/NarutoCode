@@ -19,10 +19,11 @@ public sealed class SubAgentDelegationContributor(SubAgentRegistry subAgentRegis
     /// <inheritdoc />
     public void Contribute(AgentCompositionContext context, AgentCompositionBuilder builder)
     {
-        // 递归工厂来自装配上下文：子 Agent 复用同一装配管道（SubAgent 档案）
+        // 递归工厂与会话 Shell 工厂来自装配上下文：子 Agent 复用同一装配管道（SubAgent 档案），临时 Shell 由会话工厂跟踪
         builder.AddAIContextProvider(new SubAgentAiContextProvider(
             context.WorkingDirectory,
             subAgentRegistry,
+            context.ShellFactory,
             context.CreateSubAgent));
     }
 }
