@@ -372,7 +372,7 @@ public class MafAgentChatClient : IAgentChatClient
     /// <returns>属于 ask_user 工具时返回 <see langword="true" />。</returns>
     private static bool IsUserInteractionFunction(string functionName)
     {
-        return functionName is "narutocode_ask_user_question" or "narutocode_ask_user_input";
+        return functionName is "narutocode_ask_user_question";
     }
 
     private async Task<ChatMessage> CreateChatMessageAsync(

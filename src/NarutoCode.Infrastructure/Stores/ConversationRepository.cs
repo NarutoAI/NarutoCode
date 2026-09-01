@@ -757,9 +757,9 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
     /// <returns>属于 ask_user 工具时返回 <see langword="true" />。</returns>
     private static bool IsUserInteractionFunction(string functionName)
     {
-        return functionName is "narutocode_ask_user_question" or "narutocode_ask_user_input"
+        return functionName is "narutocode_ask_user_question"
             // 兼容此前已持久化的旧工具调用，避免历史重载泄露工具名。
-            or "ask_user_question" or "ask_user_input";
+            or "ask_user_question" or "ask_user_input" or "narutocode_ask_user_input";
     }
 
     /// <summary>

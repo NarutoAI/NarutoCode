@@ -39,14 +39,3 @@ internal sealed record AskUserBatchQuestionRequest(
 internal sealed record AskUserOptionRequest(
     [Description("选项标识，简短英文，交互内唯一")] string Id,
     [Description("选项展示文本")] string Label);
-
-/// <summary>
-/// ask_user_input 工具参数：向用户收集一段文本参数。
-/// </summary>
-/// <param name="Question">问题正文，说明需要用户提供的参数。</param>
-/// <param name="Title">弹窗标题。</param>
-/// <param name="DefaultValue">输入默认值，可省略。</param>
-internal sealed record AskUserInputRequest(
-    [Description("问题正文，说明需要用户提供的参数")] string Question,
-    [Description("弹窗标题")] string Title = "",
-    [Description("输入默认值，可省略")] string? DefaultValue = null);

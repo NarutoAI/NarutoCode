@@ -25,7 +25,7 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
     }
 
     /// <summary>
-    /// 构建用户交互上下文：使用规范指令 + narutocode_ask_user_question / narutocode_ask_user_input 工具。
+    /// 构建用户交互上下文：使用规范指令 + narutocode_ask_user_question 工具。
     /// </summary>
     private static AIContext BuildContext(IUserInteractionManager interactionManager)
     {
@@ -33,7 +33,7 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
             """
             ## 用户交互
 
-            你可以通过 `narutocode_ask_user_question` 与 `narutocode_ask_user_input` 工具向用户发起提问，用户会在界面弹窗中作答，工具返回其回答后你再继续。
+            你可以通过 `narutocode_ask_user_question` 工具向用户发起提问，用户会在界面弹窗中作答，工具返回其回答后你再继续。
 
             ### 何时使用
             - 存在多种有效实现方案，且取舍会显著影响结果时。
@@ -42,10 +42,10 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
 
             ### 使用约束
             - 能从上下文、代码或用户消息推断的信息，不要提问。
-            - 需要确认多个相互独立的关键决策时，优先一次调用 `narutocode_ask_user_question` 并传入 `questions`；界面会在一张问卷中统一收集答案，避免逐题等待。
+            - 需要确认多个相互独立的关键决策时，优先一次调用并传入 `questions`；界面会在一张问卷中统一收集答案，避免逐题等待。
             - `questions` 一次提供 2-4 道选择题，每题提供 2-4 个选项；题目 id 与选项 id 使用简短英文，展示文本使用中文；界面固定提供可选的补充说明输入区。
             - 每道选择题的选项列表最后一个必须固定为「其它」选项（id=`other`，label=`其它`），保证用户始终能表达选项之外的想法；用户选择「其它」时通常会在补充说明中写明具体意图，应结合补充说明理解。
-            - 只有一个关键问题时使用单题 `question`；无选项的自由文本仍使用 `narutocode_ask_user_input`。
+            - 开放式提问：省略 `options` 与 `questions`，仅提供 `question`，用户以自由文本作答。
             - 用户取消回答时，基于已有信息继续或说明无法继续的原因，不要立即重复追问。
             """;
 
@@ -53,18 +53,12 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
         var askQuestion = AIFunctionFactory.Create(AskQuestionHandler,
             name: "narutocode_ask_user_question",
             serializerOptions: UserInteractionJsonSerializerContext.Default.AskUserQuestionRequest.Options);
-        var askInput = AIFunctionFactory.Create(AskInputHandler,
-            name: "narutocode_ask_user_input",
-            serializerOptions: UserInteractionJsonSerializerContext.Default.AskUserInputRequest.Options);
 
-        return new AIContext { Instructions = instructions, Tools = [askQuestion, askInput] };
+        return new AIContext { Instructions = instructions, Tools = [askQuestion] };
 
         // 绑定管理器的工具委托
         Task<string> AskQuestionHandler(AskUserQuestionRequest request, CancellationToken cancellationToken) =>
             AskQuestionCoreAsync(interactionManager, request, cancellationToken);
-
-        Task<string> AskInputHandler(AskUserInputRequest request, CancellationToken cancellationToken) =>
-            AskInputCoreAsync(interactionManager, request, cancellationToken);
     }
 
     /// <summary>
@@ -124,33 +118,6 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
             sessionId, type, request.Title ?? string.Empty, request.Question, request.Multiple, options);
         var singleResult = await interactionManager.RequestAsync(singleInteraction, cancellationToken);
         return FormatResult(singleInteraction, singleResult);
-    }
-
-    /// <summary>
-    /// ask_user_input 工具体：向用户收集一段文本参数。
-    /// </summary>
-    [Description("向用户请求输入一段文本参数（可带默认值）。适用于缺少路径、名称等关键参数时。")]
-    private static async Task<string> AskInputCoreAsync(
-        IUserInteractionManager interactionManager,
-        AskUserInputRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(request.Question))
-        {
-            return "question 不能为空。";
-        }
-
-        var sessionId = interactionManager.CurrentSessionId;
-        if (sessionId == 0)
-        {
-            return "当前会话上下文不可用，无法向用户发起输入，请使用常规输入方式。";
-        }
-
-        var interaction = new UserInteractionRequest(
-            sessionId, UserInteractionType.Input, request.Title ?? string.Empty, request.Question,
-            defaultValue: request.DefaultValue);
-        var result = await interactionManager.RequestAsync(interaction, cancellationToken);
-        return FormatResult(interaction, result);
     }
 
     /// <summary>

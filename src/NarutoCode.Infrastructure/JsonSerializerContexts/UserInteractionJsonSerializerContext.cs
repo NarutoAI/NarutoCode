@@ -24,7 +24,6 @@ namespace NarutoCode.Infrastructure.JsonSerializerContexts;
 [JsonSerializable(typeof(IReadOnlyDictionary<string, UserInteractionSelectionAnswer>))]
 [JsonSerializable(typeof(UserInteractionBatchAnswer))]
 [JsonSerializable(typeof(AskUserQuestionRequest))]
-[JsonSerializable(typeof(AskUserInputRequest))]
 [JsonSerializable(typeof(AskUserOptionRequest))]
 [JsonSerializable(typeof(AskUserBatchQuestionRequest))]
 internal sealed partial class UserInteractionJsonSerializerContext : JsonSerializerContext
