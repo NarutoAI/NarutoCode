@@ -110,4 +110,16 @@ internal static partial class Log
         Level = LogLevel.Debug,
         Message = "会话 Shell 工厂释放完成：共回收 {Count} 个 Shell 子进程")]
     public static partial void ShellExecutorScopeDisposed(ILogger logger, int count);
+
+    [LoggerMessage(
+        EventId = 22,
+        Level = LogLevel.Warning,
+        Message = "读取会话模式持久化文件失败，将使用默认模式：会话 {SessionId}")]
+    public static partial void AgentModeStateLoadFailed(ILogger logger, Exception exception, long sessionId);
+
+    [LoggerMessage(
+        EventId = 23,
+        Level = LogLevel.Warning,
+        Message = "写入会话模式持久化文件失败：会话 {SessionId}")]
+    public static partial void AgentModeStateSaveFailed(ILogger logger, Exception exception, long sessionId);
 }

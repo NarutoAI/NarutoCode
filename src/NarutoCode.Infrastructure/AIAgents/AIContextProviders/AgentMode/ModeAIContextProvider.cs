@@ -1,8 +1,9 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders.AgentMode;
+using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 
 namespace NarutoCode.Infrastructure.AIAgents.AIContextProviders;
@@ -65,6 +66,7 @@ public class ModeAIContextProvider:AIContextProvider
     ];
 
     private readonly ProviderSessionState<ModeState> _sessionState;
+    private readonly AgentModeStateStore _stateStore;
     private readonly IReadOnlyList<ModeProviderOptions.AgentMode> _modes;
     private readonly string _defaultMode;
     private readonly string? _instructions;
@@ -120,10 +122,44 @@ public class ModeAIContextProvider:AIContextProvider
             throw new ArgumentException($"Default mode \"{this._defaultMode}\" is not in the configured modes list.", nameof(options));
         }
 
+        // 模式状态存储：按业务会话 id 持久化到 JSON 文件，进程重启或会话恢复后还原模式
+        this._stateStore = new AgentModeStateStore();
         this._sessionState = new ProviderSessionState<ModeState>(
-            _ => new ModeState {CurrentMode = this._defaultMode},
+            this.CreateInitialModeState,
             this.GetType().Name,
             AIContentJsonSerializerContext.Default.ModeState.Options);
+    }
+
+    /// <summary>
+    /// 创建会话的初始模式状态：优先从本地持久化文件恢复该会话上次使用的模式。
+    /// </summary>
+    /// <param name="session">当前 Agent 会话；框架允许为空。</param>
+    /// <returns>初始模式状态。</returns>
+    private ModeState CreateInitialModeState(AgentSession? session)
+    {
+        // 状态工厂是同步委托，因此这里使用同步 Load；该方法只会在状态首次初始化时调用一次
+        var sessionId = GetBusinessSessionId(session);
+        var persistedMode = sessionId > 0 ? this._stateStore.Load(sessionId) : null;
+        return persistedMode is not null && this._validModeNames.Contains(persistedMode)
+            ? new ModeState {CurrentMode = persistedMode}
+            : new ModeState {CurrentMode = this._defaultMode};
+    }
+
+    /// <summary>
+    /// 获取会话绑定的业务会话 id，作为模式状态文件的持久化键。
+    /// </summary>
+    /// <param name="session">当前 Agent 会话。</param>
+    /// <returns>业务会话 id；未绑定时返回 0，表示该会话不参与模式持久化。</returns>
+    private static long GetBusinessSessionId(AgentSession? session)
+    {
+        // 业务会话 id 由会话创建流程（CreateSession）写入聊天历史状态，是唯一权威来源；
+        // 每次实时读取而不是缓存在 ModeState 中，避免依赖状态包的序列化往返语义
+        return session is not null
+               && session.StateBag.TryGetValue(nameof(PersistenceChatHistoryProvider),
+                   out PersistenceChatHistoryProvider.State? historyState)
+               && historyState is {SessionId: > 0}
+            ? historyState.SessionId
+            : 0;
     }
 
     /// <inheritdoc />
@@ -183,6 +219,12 @@ public class ModeAIContextProvider:AIContextProvider
             }
 
             this._sessionState.SaveState(session, state);
+
+            // 异步落盘当前模式，保证进程重启或会话恢复后可还原
+            await this._stateStore.SaveAsync(
+                GetBusinessSessionId(session),
+                state.CurrentMode,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -295,6 +337,11 @@ public class ModeAIContextProvider:AIContextProvider
                         ModeState state = this._sessionState.GetOrInitializeState(session);
                         state.CurrentMode = mode;
                         this._sessionState.SaveState(session, state);
+
+                        // 异步落盘当前模式，保证进程重启或会话恢复后可还原
+                        await this._stateStore.SaveAsync(
+                            GetBusinessSessionId(session),
+                            state.CurrentMode).ConfigureAwait(false);
                     }
                     finally
                     {

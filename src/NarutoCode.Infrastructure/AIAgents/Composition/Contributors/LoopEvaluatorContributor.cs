@@ -16,8 +16,8 @@ public sealed class LoopEvaluatorContributor : IAgentContributor
     public void Contribute(AgentCompositionContext context, AgentCompositionBuilder builder)
     {
         // 待办完成评估在前，任务循环评估在后
-        builder.AddLoopEvaluator(new TodoCompletionLoopEvaluator(
-            new TodoCompletionLoopEvaluatorOptions { Modes = ["execute"] }));
+        // builder.AddLoopEvaluator(new TodoCompletionLoopEvaluator(
+        //     new TodoCompletionLoopEvaluatorOptions { Modes = ["execute"] }));
         builder.AddLoopEvaluator(new TaskLoopEvaluator());
     }
 }

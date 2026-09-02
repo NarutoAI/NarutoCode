@@ -31,6 +31,11 @@ public class ProjectConstant
     /// 工作目录子 Agent 编排配置文件名称。
     /// </summary>
     public const string SubAgentsConfigurationFileName = "subagents.json";
+
+    /// <summary>
+    /// Agent 模式状态目录名（位于数据目录下，每个会话一个 JSON 文件，按会话 id 命名）。
+    /// </summary>
+    public const string AgentModeStatesDirectoryName = "agent-modes";
     
     /// <summary>
     /// 
