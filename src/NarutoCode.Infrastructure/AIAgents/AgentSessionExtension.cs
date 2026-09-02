@@ -19,7 +19,7 @@ public static class AgentSessionExtension
         public async Task<bool> IsOpenPlanAsync(AIAgent agent)
         {
 #pragma warning disable MAAI001
-            var agentModeProvider = agent.GetService<AgentModeProvider>();
+            var agentModeProvider = agent.GetService<ModeAIContextProvider>();
             //
             var mode =await agentModeProvider?.GetModeAsync(agentSession);
 

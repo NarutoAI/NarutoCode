@@ -1,5 +1,7 @@
 ﻿#pragma warning disable MAAI001
 using Microsoft.Agents.AI;
+using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
+using NarutoCode.Infrastructure.AIAgents.AIContextProviders.AgentMode;
 
 namespace NarutoCode.Infrastructure.AIAgents.Composition.Contributors;
 
@@ -14,7 +16,7 @@ public sealed class AgentModeContributor : IAgentContributor
     /// <inheritdoc />
     public void Contribute(AgentCompositionContext context, AgentCompositionBuilder builder)
     {
-        builder.AddAgentModeProviderOptions(new AgentModeProviderOptions
+        builder.AddAIContextProvider(new ModeAIContextProvider(new ModeProviderOptions
         {
             // {current_mode} 与 {available_modes} 由框架运行时替换，此处不做字符串插值
             Instructions =
@@ -29,7 +31,7 @@ public sealed class AgentModeContributor : IAgentContributor
                 """,
             Modes = null,
             DefaultMode = "execute"
-        });
+        }));
     }
 }
 #pragma warning restore MAAI001

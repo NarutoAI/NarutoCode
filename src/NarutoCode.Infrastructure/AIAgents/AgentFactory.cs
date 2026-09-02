@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
+using NarutoCode.Infrastructure.AIAgents.AIContextProviders.AgentMode;
 using NarutoCode.Infrastructure.AIAgents.Composition;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
 
@@ -120,7 +121,6 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
 
         return _dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
         {
-            AgentModeProviderOptions = composition.AgentModeProviderOptions ?? new AgentModeProviderOptions(),
             HarnessInstructions = composition.Instructions,
             Name = "NarutoCode",
             DisableFileMemory = true,
@@ -134,6 +134,7 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             AIContextProviders = [.. composition.AIContextProviders],
             DisableTodoProvider = true,
             DisableCompaction = true,
+            DisableAgentModeProvider = true,
             ToolApprovalAgentOptions = new ToolApprovalAgentOptions
             {
                 AutoApprovalRules = [ToolApprovalAgent.AllToolsAutoApprovalRule]

@@ -1,5 +1,6 @@
 ﻿using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using NarutoCode.Infrastructure.AIAgents.AIContextProviders.AgentMode;
 
 #pragma warning disable MAAI001
 
@@ -15,7 +16,6 @@ public sealed class AgentCompositionBuilder
     private readonly List<LoopEvaluator> _loopEvaluators = [];
     private readonly List<AITool> _tools = [];
     private ChatHistoryProvider? _chatHistoryProvider;
-    private AgentModeProviderOptions? _agentModeProviderOptions;
 
     /// <summary>
     /// 追加 AI 上下文提供器，保持贡献顺序。
@@ -81,17 +81,6 @@ public sealed class AgentCompositionBuilder
     }
 
     /// <summary>
-    /// 设置 Agent 模式提供器选项；多个贡献者设置时后写覆盖。
-    /// </summary>
-    /// <param name="options">Agent 模式提供器选项。</param>
-    /// <returns>当前构建器。</returns>
-    public AgentCompositionBuilder AddAgentModeProviderOptions(AgentModeProviderOptions options)
-    {
-        _agentModeProviderOptions = options;
-        return this;
-    }
-
-    /// <summary>
     /// 产出装配结果；Instruction 片段按贡献顺序以空行拼接。
     /// </summary>
     /// <returns>最终装配结果。</returns>
@@ -100,7 +89,6 @@ public sealed class AgentCompositionBuilder
         string.Join("\n\n", _instructionSections),
         _loopEvaluators.AsReadOnly(),
         _tools.AsReadOnly(),
-        _chatHistoryProvider,
-        _agentModeProviderOptions);
+        _chatHistoryProvider);
 }
 #pragma warning restore MAAI001

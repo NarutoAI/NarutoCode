@@ -1,5 +1,6 @@
 ﻿using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using NarutoCode.Infrastructure.AIAgents.AIContextProviders.AgentMode;
 
 #pragma warning disable MAAI001
 
@@ -19,8 +20,7 @@ public sealed class AgentComposition(
     string instructions,
     IReadOnlyList<LoopEvaluator> loopEvaluators,
     IReadOnlyList<AITool> tools,
-    ChatHistoryProvider? chatHistoryProvider,
-    AgentModeProviderOptions? agentModeProviderOptions)
+    ChatHistoryProvider? chatHistoryProvider)
 {
     /// <summary>AI 上下文提供器集合，按贡献顺序排列。</summary>
     public IReadOnlyList<AIContextProvider> AIContextProviders { get; } = aiContextProviders;
@@ -36,8 +36,5 @@ public sealed class AgentComposition(
 
     /// <summary>聊天历史提供器；未贡献时由调用方使用默认值。</summary>
     public ChatHistoryProvider? ChatHistoryProvider { get; } = chatHistoryProvider;
-
-    /// <summary>Agent 模式提供器选项；未贡献时由调用方使用默认值。</summary>
-    public AgentModeProviderOptions? AgentModeProviderOptions { get; } = agentModeProviderOptions;
 }
 #pragma warning restore MAAI001
