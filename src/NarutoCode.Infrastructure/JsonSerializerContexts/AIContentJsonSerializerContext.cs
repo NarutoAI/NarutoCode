@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders.AgentMode;
 using NarutoCode.Infrastructure.AIAgents.SubAgents;
+using NarutoCode.Infrastructure.Tasks;
 
 namespace NarutoCode.Infrastructure.JsonSerializerContexts;
 
@@ -68,6 +69,7 @@ namespace NarutoCode.Infrastructure.JsonSerializerContexts;
 [JsonSerializable(typeof(SvgRenderMetadataResult))]
 [JsonSerializable(typeof(VisionRecognitionToolResult))]
 [JsonSerializable(typeof(ModeState))]
+[JsonSerializable(typeof(TaskAgentTaskState))]
 internal sealed partial class AIContentJsonSerializerContext : JsonSerializerContext
 {
     /// <summary>

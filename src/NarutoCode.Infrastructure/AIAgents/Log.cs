@@ -122,4 +122,16 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "写入会话模式持久化文件失败：会话 {SessionId}")]
     public static partial void AgentModeStateSaveFailed(ILogger logger, Exception exception, long sessionId);
+
+    [LoggerMessage(
+        EventId = 24,
+        Level = LogLevel.Warning,
+        Message = "读取会话任务持久化文件失败，将使用空任务列表：会话 {SessionId}")]
+    public static partial void AgentTaskStateLoadFailed(ILogger logger, Exception exception, long sessionId);
+
+    [LoggerMessage(
+        EventId = 25,
+        Level = LogLevel.Warning,
+        Message = "写入会话任务持久化文件失败：会话 {SessionId}")]
+    public static partial void AgentTaskStateSaveFailed(ILogger logger, Exception exception, long sessionId);
 }

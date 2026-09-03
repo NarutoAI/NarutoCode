@@ -1,10 +1,12 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Models;
+using NarutoCode.Infrastructure.AIAgents.AIContextProviders.Tasks;
+using NarutoCode.Infrastructure.AIAgents.ChatHistorys;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 using NarutoCode.Infrastructure.Tasks;
 
@@ -102,13 +104,42 @@ public sealed class TaskProvider : AIContextProvider
         """;
 
     private readonly ProviderSessionState<TaskAgentTaskState> _sessionState;
+    private readonly AgentTaskStateStore _stateStore;
     private AITool[]? _tools;
 
     public TaskProvider()
     {
+        this._stateStore = new AgentTaskStateStore();
         this._sessionState = new ProviderSessionState<TaskAgentTaskState>(
-            _ => new TaskAgentTaskState(),
-            this.GetType().Name);
+            this.CreateInitialTaskState,
+            this.GetType().Name,
+            AIContentJsonSerializerContext.Default.TaskAgentTaskState.Options);
+    }
+
+    /// <summary>
+    /// 创建会话首次访问时使用的任务状态。
+    /// </summary>
+    /// <param name="session">当前 Agent 会话。</param>
+    /// <returns>已持久化的任务状态；无可恢复状态时返回空任务列表。</returns>
+    private TaskAgentTaskState CreateInitialTaskState(AgentSession? session)
+    {
+        var state = this._stateStore.Load(GetBusinessSessionId(session));
+        return state ?? new TaskAgentTaskState();
+    }
+
+    /// <summary>
+    /// 从聊天历史持久化状态获取业务会话 id。
+    /// </summary>
+    /// <param name="session">当前 Agent 会话。</param>
+    /// <returns>业务会话 id；未绑定业务会话时返回 0。</returns>
+    private static long GetBusinessSessionId(AgentSession? session)
+    {
+        return session is not null
+               && session.StateBag.TryGetValue(nameof(PersistenceChatHistoryProvider),
+                   out PersistenceChatHistoryProvider.State? historyState)
+               && historyState is not null
+            ? historyState.SessionId
+            : 0;
     }
 
     protected override ValueTask<AIContext> ProvideAIContextAsync(InvokingContext context,
@@ -175,7 +206,7 @@ public sealed class TaskProvider : AIContextProvider
     /// <param name="metadata">任务附加元数据。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("创建一个任务，用于跟踪复杂多步骤工作的进度")]
-    private string TaskCreate(
+    private async Task<string> TaskCreate(
         [Description("任务标题，要求简短且可执行")] string subject,
         [Description("任务描述，说明需要完成的具体工作")] string description,
         [Description("任务执行中展示的进行时文案，例如 Running tests")]
@@ -194,6 +225,7 @@ public sealed class TaskProvider : AIContextProvider
 
         var taskState = GetTaskState();
         var task = taskState.Create(subject.Trim(), description.Trim(), activeForm, metadata);
+        await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
         return Serialize(new TaskCreateToolResult
         {
             Success = true,
@@ -221,11 +253,11 @@ public sealed class TaskProvider : AIContextProvider
     /// <param name="taskId">要查询的任务 ID。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("根据任务 ID 获取任务标题、描述、状态、所有者和依赖关系")]
-    private string TaskGet([Description("要查询的任务 ID")] string taskId)
+    private Task<string> TaskGet([Description("要查询的任务 ID")] string taskId)
     {
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            return Serialize(TaskToolResult.Error("TaskGet requires a non-empty taskId."));
+            return Task.FromResult(Serialize(TaskToolResult.Error("TaskGet requires a non-empty taskId.")));
         }
 
         var taskState = GetTaskState();
@@ -233,14 +265,14 @@ public sealed class TaskProvider : AIContextProvider
 
         if (task is null)
         {
-            return Serialize(TaskToolResult.Error($"Task \"{taskId}\" not found."));
+            return Task.FromResult(Serialize(TaskToolResult.Error($"Task \"{taskId}\" not found.")));
         }
 
-        return Serialize(new TaskGetToolResult
+        return Task.FromResult(Serialize(new TaskGetToolResult
         {
             Success = true,
             Task = TaskDetailedToolResult.FromTask(task)
-        });
+        }));
     }
 
     /// <summary>
@@ -248,7 +280,7 @@ public sealed class TaskProvider : AIContextProvider
     /// </summary>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("列出所有任务，包括任务 ID、标题、状态、所有者和未完成前置依赖")]
-    private string TaskList()
+    private Task<string> TaskList()
     {
         var taskState = GetTaskState();
         var tasks = taskState.Items;
@@ -288,7 +320,7 @@ public sealed class TaskProvider : AIContextProvider
             taskResults[i] = TaskListItemToolResult.FromTask(tasks[i], completedTaskIds);
         }
 
-        return Serialize(new TaskListToolResult
+        return Task.FromResult(Serialize(new TaskListToolResult
         {
             Success = true,
             Total = tasks.Count,
@@ -298,7 +330,7 @@ public sealed class TaskProvider : AIContextProvider
             WaitingAck = waitingAck,
             Stopped = stopped,
             Tasks = taskResults
-        });
+        }));
     }
 
     /// <summary>
@@ -317,7 +349,7 @@ public sealed class TaskProvider : AIContextProvider
     /// <param name="error">任务错误信息，供 TaskOutput 读取。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("更新任务状态、标题、描述、所有者、依赖、元数据或输出；status=deleted 表示删除任务")]
-    private string TaskUpdate(
+    private async Task<string> TaskUpdate(
         [Description("要更新的任务 ID")] string taskId,
         [Description("新的任务标题")] string? subject = null,
         [Description("新的任务描述")] string? description = null,
@@ -351,6 +383,11 @@ public sealed class TaskProvider : AIContextProvider
         if (IsDeletedStatus(status))
         {
             var deleted = taskState.Delete(normalizedTaskId);
+            if (deleted)
+            {
+                await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
+            }
+
             return Serialize(new TaskUpdateToolResult
             {
                 Success = deleted,
@@ -397,6 +434,11 @@ public sealed class TaskProvider : AIContextProvider
         }
 
         updatedTask = taskState.Get(normalizedTaskId) ?? updatedTask;
+        if (updatedFields.Count > 0)
+        {
+            await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
+        }
+
         return Serialize(new TaskUpdateToolResult
         {
             Success = true,
@@ -420,7 +462,7 @@ public sealed class TaskProvider : AIContextProvider
     /// <param name="taskId">要停止的任务 ID。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("停止一个 pending 或 in_progress 或者 waiting_ack 任务，并将其状态标记为 stopped")]
-    private string TaskStop([Description("要停止的任务 ID")] string taskId)
+    private async Task<string> TaskStop([Description("要停止的任务 ID")] string taskId)
     {
         if (string.IsNullOrWhiteSpace(taskId))
         {
@@ -447,6 +489,10 @@ public sealed class TaskProvider : AIContextProvider
             task.Status = TaskAgentTaskStatus.Stopped;
             task.Output = AppendOutput(task.Output, "Task stopped by TaskStop.");
         });
+        if (stoppedTask is not null)
+        {
+            await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
+        }
 
         return Serialize(new TaskStopToolResult
         {
@@ -457,6 +503,16 @@ public sealed class TaskProvider : AIContextProvider
         });
     }
 
+
+    /// <summary>
+    /// 异步保存当前会话的任务状态。
+    /// </summary>
+    /// <param name="state">需要保存的任务状态。</param>
+    /// <returns>表示异步保存操作的任务。</returns>
+    private Task SaveTaskStateAsync(TaskAgentTaskState state)
+    {
+        return this._stateStore.SaveAsync(GetBusinessSessionId(AIAgent.CurrentRunContext?.Session), state);
+    }
 
     /// <summary>
     /// 获取所有任务快照。
