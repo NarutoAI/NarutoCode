@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Agents.AI;
@@ -105,6 +106,8 @@ public sealed class TaskProvider : AIContextProvider
 
     private readonly ProviderSessionState<TaskAgentTaskState> _sessionState;
     private readonly AgentTaskStateStore _stateStore;
+    private readonly ConditionalWeakTable<AgentSession, SemaphoreSlim> _sessionLocks = new();
+    private readonly SemaphoreSlim _nullSessionLock = new(1, 1);
     private AITool[]? _tools;
 
     public TaskProvider()
@@ -114,6 +117,12 @@ public sealed class TaskProvider : AIContextProvider
             this.CreateInitialTaskState,
             this.GetType().Name,
             AIContentJsonSerializerContext.Default.TaskAgentTaskState.Options);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        this._nullSessionLock.Dispose();
     }
 
     /// <summary>
@@ -142,16 +151,42 @@ public sealed class TaskProvider : AIContextProvider
             : 0;
     }
 
-    protected override ValueTask<AIContext> ProvideAIContextAsync(InvokingContext context,
+    protected override async ValueTask<AIContext> ProvideAIContextAsync(InvokingContext context,
         CancellationToken cancellationToken = new CancellationToken())
     {
+        string taskListMessage;
+
+        // 与任务工具共用同一会话锁，避免上下文注入读取任务列表时与工具写入交叉
+        SemaphoreSlim sessionLock = this.GetSessionLock(context.Session);
+        await sessionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            taskListMessage = FormatTaskListMessage();
+        }
+        finally
+        {
+            sessionLock.Release();
+        }
+
         var aiContext = new AIContext
         {
             Instructions = Instructions,
             Tools = this._tools ??= this.CreateTools(),
-            Messages = [new ChatMessage(ChatRole.User, FormatTaskListMessage())]
+            Messages = [new ChatMessage(ChatRole.User, taskListMessage)]
         };
-        return ValueTask.FromResult(aiContext);
+        return aiContext;
+    }
+
+    /// <summary>
+    /// 获取指定会话的串行锁，保证同一会话的任务状态读写和持久化不会交叉执行。
+    /// </summary>
+    /// <param name="session">当前 Agent 会话。</param>
+    /// <returns>当前会话对应的串行锁。</returns>
+    private SemaphoreSlim GetSessionLock(AgentSession? session)
+    {
+        return session is null
+            ? this._nullSessionLock
+            : this._sessionLocks.GetValue(session, _ => new SemaphoreSlim(1, 1));
     }
 
     /// <summary>
@@ -223,15 +258,24 @@ public sealed class TaskProvider : AIContextProvider
             return Serialize(TaskToolResult.Error("TaskCreate requires a non-empty description."));
         }
 
-        var taskState = GetTaskState();
-        var task = taskState.Create(subject.Trim(), description.Trim(), activeForm, metadata);
-        await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
-        return Serialize(new TaskCreateToolResult
+        SemaphoreSlim sessionLock = this.GetSessionLock(AIAgent.CurrentRunContext?.Session);
+        await sessionLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            Success = true,
-            Task = TaskDetailedToolResult.FromTask(task),
-            Message = $"Task #{task.Id} created successfully: {task.Subject}"
-        });
+            var taskState = GetTaskState();
+            var task = taskState.Create(subject.Trim(), description.Trim(), activeForm, metadata);
+            await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
+            return Serialize(new TaskCreateToolResult
+            {
+                Success = true,
+                Task = TaskDetailedToolResult.FromTask(task),
+                Message = $"Task #{task.Id} created successfully: {task.Subject}"
+            });
+        }
+        finally
+        {
+            sessionLock.Release();
+        }
     }
 
     /// <summary>
@@ -253,26 +297,36 @@ public sealed class TaskProvider : AIContextProvider
     /// <param name="taskId">要查询的任务 ID。</param>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("根据任务 ID 获取任务标题、描述、状态、所有者和依赖关系")]
-    private Task<string> TaskGet([Description("要查询的任务 ID")] string taskId)
+    private async Task<string> TaskGet([Description("要查询的任务 ID")] string taskId)
     {
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            return Task.FromResult(Serialize(TaskToolResult.Error("TaskGet requires a non-empty taskId.")));
+            return Serialize(TaskToolResult.Error("TaskGet requires a non-empty taskId."));
         }
 
-        var taskState = GetTaskState();
-        var task = taskState.Get(taskId.Trim());
-
-        if (task is null)
+        // 与写工具共用同一会话锁，避免读取到更新进行中的任务状态
+        SemaphoreSlim sessionLock = this.GetSessionLock(AIAgent.CurrentRunContext?.Session);
+        await sessionLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return Task.FromResult(Serialize(TaskToolResult.Error($"Task \"{taskId}\" not found.")));
+            var taskState = GetTaskState();
+            var task = taskState.Get(taskId.Trim());
+
+            if (task is null)
+            {
+                return Serialize(TaskToolResult.Error($"Task \"{taskId}\" not found."));
+            }
+
+            return Serialize(new TaskGetToolResult
+            {
+                Success = true,
+                Task = TaskDetailedToolResult.FromTask(task)
+            });
         }
-
-        return Task.FromResult(Serialize(new TaskGetToolResult
+        finally
         {
-            Success = true,
-            Task = TaskDetailedToolResult.FromTask(task)
-        }));
+            sessionLock.Release();
+        }
     }
 
     /// <summary>
@@ -280,57 +334,67 @@ public sealed class TaskProvider : AIContextProvider
     /// </summary>
     /// <returns>结构化 JSON 工具结果。</returns>
     [Description("列出所有任务，包括任务 ID、标题、状态、所有者和未完成前置依赖")]
-    private Task<string> TaskList()
+    private async Task<string> TaskList()
     {
-        var taskState = GetTaskState();
-        var tasks = taskState.Items;
-        var completedTaskIds = new HashSet<string>(StringComparer.Ordinal);
-        var pending = 0;
-        var inProgress = 0;
-        var completed = 0;
-        var waitingAck = 0;
-        var stopped = 0;
-
-        foreach (var task in tasks)
+        // 与写工具共用同一会话锁，避免枚举任务列表时与任务更新交叉执行
+        SemaphoreSlim sessionLock = this.GetSessionLock(AIAgent.CurrentRunContext?.Session);
+        await sessionLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            switch (task.Status)
+            var taskState = GetTaskState();
+            var tasks = taskState.Items;
+            var completedTaskIds = new HashSet<string>(StringComparer.Ordinal);
+            var pending = 0;
+            var inProgress = 0;
+            var completed = 0;
+            var waitingAck = 0;
+            var stopped = 0;
+
+            foreach (var task in tasks)
             {
-                case TaskAgentTaskStatus.Pending:
-                    pending++;
-                    break;
-                case TaskAgentTaskStatus.InProgress:
-                    inProgress++;
-                    break;
-                case TaskAgentTaskStatus.Completed:
-                    completed++;
-                    completedTaskIds.Add(task.Id);
-                    break;
-                case TaskAgentTaskStatus.WaitingAck:
-                    waitingAck++;
-                    break;
-                case TaskAgentTaskStatus.Stopped:
-                    stopped++;
-                    break;
+                switch (task.Status)
+                {
+                    case TaskAgentTaskStatus.Pending:
+                        pending++;
+                        break;
+                    case TaskAgentTaskStatus.InProgress:
+                        inProgress++;
+                        break;
+                    case TaskAgentTaskStatus.Completed:
+                        completed++;
+                        completedTaskIds.Add(task.Id);
+                        break;
+                    case TaskAgentTaskStatus.WaitingAck:
+                        waitingAck++;
+                        break;
+                    case TaskAgentTaskStatus.Stopped:
+                        stopped++;
+                        break;
+                }
             }
-        }
 
-        var taskResults = new TaskListItemToolResult[tasks.Count];
-        for (var i = 0; i < tasks.Count; i++)
-        {
-            taskResults[i] = TaskListItemToolResult.FromTask(tasks[i], completedTaskIds);
-        }
+            var taskResults = new TaskListItemToolResult[tasks.Count];
+            for (var i = 0; i < tasks.Count; i++)
+            {
+                taskResults[i] = TaskListItemToolResult.FromTask(tasks[i], completedTaskIds);
+            }
 
-        return Task.FromResult(Serialize(new TaskListToolResult
+            return Serialize(new TaskListToolResult
+            {
+                Success = true,
+                Total = tasks.Count,
+                Pending = pending,
+                InProgress = inProgress,
+                Completed = completed,
+                WaitingAck = waitingAck,
+                Stopped = stopped,
+                Tasks = taskResults
+            });
+        }
+        finally
         {
-            Success = true,
-            Total = tasks.Count,
-            Pending = pending,
-            InProgress = inProgress,
-            Completed = completed,
-            WaitingAck = waitingAck,
-            Stopped = stopped,
-            Tasks = taskResults
-        }));
+            sessionLock.Release();
+        }
     }
 
     /// <summary>
@@ -372,87 +436,97 @@ public sealed class TaskProvider : AIContextProvider
             return Serialize(TaskToolResult.Error("TaskUpdate requires a non-empty taskId."));
         }
 
-        var taskState = GetTaskState();
-        var normalizedTaskId = taskId.Trim();
-        var existingTask = taskState.Get(normalizedTaskId);
-        if (existingTask is null)
+        // 与其它任务工具共用同一会话锁：序列化“读取状态→更新→持久化”全流程，避免交叉写入快照文件
+        SemaphoreSlim sessionLock = this.GetSessionLock(AIAgent.CurrentRunContext?.Session);
+        await sessionLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return Serialize(TaskToolResult.Error("Task not found.", normalizedTaskId));
-        }
+            var taskState = GetTaskState();
+            var normalizedTaskId = taskId.Trim();
+            var existingTask = taskState.Get(normalizedTaskId);
+            if (existingTask is null)
+            {
+                return Serialize(TaskToolResult.Error("Task not found.", normalizedTaskId));
+            }
 
-        if (IsDeletedStatus(status))
-        {
-            var deleted = taskState.Delete(normalizedTaskId);
-            if (deleted)
+            if (IsDeletedStatus(status))
+            {
+                var deleted = taskState.Delete(normalizedTaskId);
+                if (deleted)
+                {
+                    await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
+                }
+
+                return Serialize(new TaskUpdateToolResult
+                {
+                    Success = deleted,
+                    TaskId = normalizedTaskId,
+                    UpdatedFields = deleted ? ["deleted"] : [],
+                    StatusChange = deleted
+                        ? new TaskStatusChangeToolResult {From = existingTask.ToWireStatus(), To = TaskWireStatus.Deleted}
+                        : null,
+                    ErrorMessage = deleted ? null : "Failed to delete task."
+                });
+            }
+
+            if (!TryParseStatus(status, out var parsedStatus, out var statusError))
+            {
+                return Serialize(TaskToolResult.Error(statusError, normalizedTaskId));
+            }
+
+            var updatedFields = new List<string>();
+            var updatedTask = taskState.Update(normalizedTaskId, task =>
+            {
+                ApplyBasicUpdates(
+                    task,
+                    subject,
+                    description,
+                    activeForm,
+                    owner,
+                    parsedStatus,
+                    metadata,
+                    output,
+                    error,
+                    updatedFields);
+            });
+
+            foreach (var blockedTaskId in NormalizeIds(addBlocks))
+            {
+                taskState.AddBlocks(normalizedTaskId, blockedTaskId);
+                AddUpdatedField(updatedFields, "blocks");
+            }
+
+            foreach (var blockingTaskId in NormalizeIds(addBlockedBy))
+            {
+                taskState.AddBlockedBy(normalizedTaskId, blockingTaskId);
+                AddUpdatedField(updatedFields, "blockedBy");
+            }
+
+            updatedTask = taskState.Get(normalizedTaskId) ?? updatedTask;
+            if (updatedFields.Count > 0)
             {
                 await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
             }
 
             return Serialize(new TaskUpdateToolResult
             {
-                Success = deleted,
+                Success = true,
                 TaskId = normalizedTaskId,
-                UpdatedFields = deleted ? ["deleted"] : [],
-                StatusChange = deleted
-                    ? new TaskStatusChangeToolResult {From = existingTask.ToWireStatus(), To = TaskWireStatus.Deleted}
-                    : null,
-                ErrorMessage = deleted ? null : "Failed to delete task."
+                UpdatedFields = updatedFields.ToArray(),
+                StatusChange = parsedStatus is null
+                    ? null
+                    : new TaskStatusChangeToolResult
+                        {From = existingTask.ToWireStatus(), To = ToWireStatus(parsedStatus.Value)},
+                Task = updatedTask is null ? null : TaskDetailedToolResult.FromTask(updatedTask),
+                Message = updatedFields.Count == 0
+                    ? $"Task #{normalizedTaskId} unchanged."
+                    : $"Updated task #{normalizedTaskId}: {string.Join(", ", updatedFields)}"
             });
         }
-
-        if (!TryParseStatus(status, out var parsedStatus, out var statusError))
+        finally
         {
-            return Serialize(TaskToolResult.Error(statusError, normalizedTaskId));
+            sessionLock.Release();
         }
-
-        var updatedFields = new List<string>();
-        var updatedTask = taskState.Update(normalizedTaskId, task =>
-        {
-            ApplyBasicUpdates(
-                task,
-                subject,
-                description,
-                activeForm,
-                owner,
-                parsedStatus,
-                metadata,
-                output,
-                error,
-                updatedFields);
-        });
-
-        foreach (var blockedTaskId in NormalizeIds(addBlocks))
-        {
-            taskState.AddBlocks(normalizedTaskId, blockedTaskId);
-            AddUpdatedField(updatedFields, "blocks");
-        }
-
-        foreach (var blockingTaskId in NormalizeIds(addBlockedBy))
-        {
-            taskState.AddBlockedBy(normalizedTaskId, blockingTaskId);
-            AddUpdatedField(updatedFields, "blockedBy");
-        }
-
-        updatedTask = taskState.Get(normalizedTaskId) ?? updatedTask;
-        if (updatedFields.Count > 0)
-        {
-            await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
-        }
-
-        return Serialize(new TaskUpdateToolResult
-        {
-            Success = true,
-            TaskId = normalizedTaskId,
-            UpdatedFields = updatedFields.ToArray(),
-            StatusChange = parsedStatus is null
-                ? null
-                : new TaskStatusChangeToolResult
-                    {From = existingTask.ToWireStatus(), To = ToWireStatus(parsedStatus.Value)},
-            Task = updatedTask is null ? null : TaskDetailedToolResult.FromTask(updatedTask),
-            Message = updatedFields.Count == 0
-                ? $"Task #{normalizedTaskId} unchanged."
-                : $"Updated task #{normalizedTaskId}: {string.Join(", ", updatedFields)}"
-        });
     }
 
 
@@ -469,38 +543,48 @@ public sealed class TaskProvider : AIContextProvider
             return Serialize(TaskToolResult.Error("TaskStop requires a non-empty taskId."));
         }
 
-        var taskState = GetTaskState();
-        var normalizedTaskId = taskId.Trim();
-        var existingTask = taskState.Get(normalizedTaskId);
-        if (existingTask is null)
+        // 与其它任务工具共用同一会话锁：序列化“读取状态→停止→持久化”全流程
+        SemaphoreSlim sessionLock = this.GetSessionLock(AIAgent.CurrentRunContext?.Session);
+        await sessionLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return Serialize(TaskToolResult.Error($"Task \"{normalizedTaskId}\" not found."));
-        }
+            var taskState = GetTaskState();
+            var normalizedTaskId = taskId.Trim();
+            var existingTask = taskState.Get(normalizedTaskId);
+            if (existingTask is null)
+            {
+                return Serialize(TaskToolResult.Error($"Task \"{normalizedTaskId}\" not found."));
+            }
 
-        if (existingTask.Status == TaskAgentTaskStatus.Completed)
-        {
-            return Serialize(TaskToolResult.Error(
-                $"Task {normalizedTaskId} is already completed and cannot be stopped.",
-                normalizedTaskId));
-        }
+            if (existingTask.Status == TaskAgentTaskStatus.Completed)
+            {
+                return Serialize(TaskToolResult.Error(
+                    $"Task {normalizedTaskId} is already completed and cannot be stopped.",
+                    normalizedTaskId));
+            }
 
-        var stoppedTask = taskState.Update(normalizedTaskId, task =>
-        {
-            task.Status = TaskAgentTaskStatus.Stopped;
-            task.Output = AppendOutput(task.Output, "Task stopped by TaskStop.");
-        });
-        if (stoppedTask is not null)
-        {
-            await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
-        }
+            var stoppedTask = taskState.Update(normalizedTaskId, task =>
+            {
+                task.Status = TaskAgentTaskStatus.Stopped;
+                task.Output = AppendOutput(task.Output, "Task stopped by TaskStop.");
+            });
+            if (stoppedTask is not null)
+            {
+                await this.SaveTaskStateAsync(taskState).ConfigureAwait(false);
+            }
 
-        return Serialize(new TaskStopToolResult
+            return Serialize(new TaskStopToolResult
+            {
+                Success = true,
+                Message = $"Successfully stopped task: {normalizedTaskId}",
+                TaskId = normalizedTaskId,
+                Task = stoppedTask is null ? null : TaskDetailedToolResult.FromTask(stoppedTask)
+            });
+        }
+        finally
         {
-            Success = true,
-            Message = $"Successfully stopped task: {normalizedTaskId}",
-            TaskId = normalizedTaskId,
-            Task = stoppedTask is null ? null : TaskDetailedToolResult.FromTask(stoppedTask)
-        });
+            sessionLock.Release();
+        }
     }
 
 
@@ -520,8 +604,18 @@ public sealed class TaskProvider : AIContextProvider
     /// <returns>任务快照列表。</returns>
     public IReadOnlyList<TaskAgentTask> GetList(AgentSession agentSession)
     {
-        var taskState = this._sessionState.GetOrInitializeState(agentSession);
-        return taskState.Items;
+        // 与任务工具共用同一会话锁；返回快照，避免调用方在锁外遍历活列表时被并发变更打断
+        SemaphoreSlim sessionLock = this.GetSessionLock(agentSession);
+        sessionLock.Wait();
+        try
+        {
+            var taskState = this._sessionState.GetOrInitializeState(agentSession);
+            return taskState.Items.ToArray();
+        }
+        finally
+        {
+            sessionLock.Release();
+        }
     }
 
     /// <summary>
