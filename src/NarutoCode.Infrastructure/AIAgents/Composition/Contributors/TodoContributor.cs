@@ -15,8 +15,9 @@ public sealed class TodoContributor : IAgentContributor
     /// <inheritdoc />
     public void Contribute(AgentCompositionContext context, AgentCompositionBuilder builder)
     {
-        // Wrap：工具审批/工具结果回合跳过上下文注入，避免破坏工具调用协议要求的消息相邻性
-        builder.AddAIContextProvider(ToolContinuationSkippingAiContextProvider.Wrap(new TodoProvider()));
+        // // Wrap：工具审批/工具结果回合跳过上下文注入，避免破坏工具调用协议要求的消息相邻性
+        //不再使用 因为不支持持久化 就使用task工具就行了
+        // builder.AddAIContextProvider(ToolContinuationSkippingAiContextProvider.Wrap(new TodoProvider()));
     }
 }
 #pragma warning restore MAAI001
