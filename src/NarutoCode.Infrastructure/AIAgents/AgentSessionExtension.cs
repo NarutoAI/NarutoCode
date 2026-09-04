@@ -27,23 +27,23 @@ public static class AgentSessionExtension
 #pragma warning restore MAAI001
         }
 
-        /// <summary>
-        /// 是否开启待办任务
-        /// </summary>
-        /// <returns></returns>
-        public async Task<bool> IsOpenTodoAsync(AIAgent agent)
-        {
-#pragma warning disable MAAI001
-            var todoProvider = agent.GetService<TodoProvider>();
-            //获取剩余的待办
-            var remainingTodos = await todoProvider.GetRemainingTodosAsync(agentSession);
-            if (remainingTodos is {Count: > 0})
-            {
-                return true;
-            }
-#pragma warning restore MAAI001
-            return false;
-        }
+//         /// <summary>
+//         /// 是否开启待办任务
+//         /// </summary>
+//         /// <returns></returns>
+//         public async Task<bool> IsOpenTodoAsync(AIAgent agent)
+//         {
+// #pragma warning disable MAAI001
+//             var todoProvider = agent.GetService<TodoProvider>();
+//             //获取剩余的待办
+//             var remainingTodos = await todoProvider.GetRemainingTodosAsync(agentSession);
+//             if (remainingTodos is {Count: > 0})
+//             {
+//                 return true;
+//             }
+// #pragma warning restore MAAI001
+//             return false;
+//         }
 
         /// <summary>
         /// 是否存在执行中的任务
