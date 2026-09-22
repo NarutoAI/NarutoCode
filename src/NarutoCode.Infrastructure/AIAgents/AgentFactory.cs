@@ -126,7 +126,8 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             DisableAgentModeProvider = true,
             ToolApprovalAgentOptions = new ToolApprovalAgentOptions
             {
-                AutoApprovalRules = [ToolApprovalAgent.AllToolsAutoApprovalRule]
+                AutoApprovalRules = [ToolApprovalAgent.AllToolsAutoApprovalRule],
+                MaxAutoApprovalIterations = int.MaxValue
             },
             LoopEvaluators = [.. composition.LoopEvaluators]
         }, _loggerFactory);
