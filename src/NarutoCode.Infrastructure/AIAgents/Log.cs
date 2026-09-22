@@ -15,12 +15,6 @@ internal static partial class Log
     public static partial void ConversationAgentRuntimeCreated(ILogger logger, string workingDirectory);
 
     [LoggerMessage(
-        EventId = 4,
-        Level = LogLevel.Information,
-        Message = "已标记会话 Agent Runtime 失效：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
-    public static partial void ConversationAgentRuntimeInvalidated(ILogger logger, string workingDirectory, long sessionId);
-
-    [LoggerMessage(
         EventId = 5,
         Level = LogLevel.Information,
         Message = "正在释放失效的会话 Agent Runtime：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
@@ -74,12 +68,6 @@ internal static partial class Log
         Level = LogLevel.Debug,
         Message = "贡献者 {ContributorName} 不参与 {Profile} 档案装配，已跳过。")]
     public static partial void ContributorSkipped(ILogger logger, string contributorName, AgentProfile profile);
-
-    [LoggerMessage(
-        EventId = 16,
-        Level = LogLevel.Warning,
-        Message = "重置会话 Agent Runtime 时未找到缓存条目：工作目录 {WorkingDirectory}，会话 {SessionId}。")]
-    public static partial void ConversationRuntimeNotFoundForReset(ILogger logger, string workingDirectory, long sessionId);
 
     [LoggerMessage(
         EventId = 17,

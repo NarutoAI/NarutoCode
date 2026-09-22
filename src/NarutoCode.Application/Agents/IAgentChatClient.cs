@@ -1,4 +1,4 @@
-using NarutoCode.Domain.Messages;
+﻿using NarutoCode.Domain.Messages;
 
 namespace NarutoCode.Application.Agents;
 
@@ -17,15 +17,5 @@ public interface IAgentChatClient
     IAsyncEnumerable<AgentMessage> SendMessageAsync(
         ConversationSessionId sessionId,
         AgentMessage message,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 重置指定对话的运行时 Agent 会话，下一次发送消息时会从持久化历史重新创建会话。
-    /// </summary>
-    /// <param name="sessionId">需要重置的会话标识。</param>
-    /// <param name="cancellationToken">取消令牌。</param>
-    /// <returns>表示异步重置操作的任务。</returns>
-    Task ResetRuntimeSessionAsync(
-        ConversationSessionId sessionId,
         CancellationToken cancellationToken = default);
 }

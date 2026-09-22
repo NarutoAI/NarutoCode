@@ -62,25 +62,6 @@ public sealed class ConversationRuntimeCache(ILogger<ConversationRuntimeCache> l
         }
     }
 
-    /// <summary>
-    /// 标记会话 Runtime 失效，下一次获取时在旧租约释放后销毁并重建；缓存条目暂不驱逐以保证串行等待。
-    /// </summary>
-    /// <param name="workingDirectory">规范化后的工作目录。</param>
-    /// <param name="sessionId">会话标识。</param>
-    public void Invalidate(string workingDirectory, ConversationSessionId sessionId)
-    {
-        if (_cache.TryGetValue(CreateKey(workingDirectory, sessionId), out ConversationAgentRuntime? runtime) &&
-            runtime is not null)
-        {
-            runtime.Invalidate();
-            Log.ConversationAgentRuntimeInvalidated(_logger, workingDirectory, sessionId.Value);
-        }
-        else
-        {
-            Log.ConversationRuntimeNotFoundForReset(_logger, workingDirectory, sessionId.Value);
-        }
-    }
-
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {

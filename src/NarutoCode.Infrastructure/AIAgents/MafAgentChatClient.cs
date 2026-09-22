@@ -46,25 +46,9 @@ public class MafAgentChatClient : IAgentChatClient
         _logger = logger;
     }
 
-    /// <summary>
-    /// 重置会话信息，下一次重新读取 主要为了防止 取消之后，中途的工具调用没有结果导致报错
-    /// </summary>
-    /// <param name="sessionId"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public Task ResetRuntimeSessionAsync(
-        ConversationSessionId sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        _agentFactory.ResetCurrentConversation(sessionId);
-        return Task.CompletedTask;
-    }
-
     private async Task<AgentSession> CreateSessionAsync(
         AIAgent agent,
         ConversationSessionId sessionId,
-        ChatMessage pendingMessage,
         CancellationToken cancellationToken)
     {
         var messages = await LoadSessionHistoryMessagesAsync(_conversationRepository, sessionId, cancellationToken);
@@ -87,8 +71,9 @@ public class MafAgentChatClient : IAgentChatClient
             chatMessages.Add(itemChatMessage);
         }
 
+        // 未闭合工具调用不再裁剪历史：由 ToolCheckAiAgent 在下次运行入口自动补全占位结果
         return session.CreateSession(sessionId,
-            PruneIncompleteToolCalls(chatMessages, pendingMessage),
+            chatMessages,
             conversation?.LastInputTokenCount);
     }
 
@@ -136,92 +121,6 @@ public class MafAgentChatClient : IAgentChatClient
         }
     }
 
-    /// <summary>
-    /// 裁剪取消或异常中断后遗留的未完成工具调用，避免下一轮恢复会话时报缺少工具输出。
-    /// </summary>
-    /// <param name="messages">按历史顺序排列的聊天消息。</param>
-    /// <param name="pendingMessage">当前待发送的消息，用于识别尚未写入历史的审批响应。</param>
-    /// <returns>可安全恢复给 Agent Framework 的历史消息。</returns>
-    internal static List<ChatMessage> PruneIncompleteToolCalls(
-        List<ChatMessage> messages,
-        ChatMessage? pendingMessage = null)
-    {
-        if (messages.Count == 0)
-        {
-            return messages;
-        }
-
-        var unresolvedCallIds = new HashSet<string>(StringComparer.Ordinal);
-        var firstUnresolvedIndex = -1;
-
-        for (var index = 0; index < messages.Count; index++)
-        {
-            var message = messages[index];
-            if (message.Contents is not {Count: > 0})
-            {
-                continue;
-            }
-
-            foreach (var content in message.Contents)
-            {
-                if (content is FunctionCallContent functionCallContent)
-                {
-                    // 记录未完成工具调用的起点，后续没有匹配结果时需要整体裁剪。
-                    unresolvedCallIds.Add(functionCallContent.CallId);
-                    if (firstUnresolvedIndex < 0)
-                    {
-                        firstUnresolvedIndex = index;
-                    }
-
-                    continue;
-                }
-
-                if (content is FunctionResultContent functionResultContent)
-                {
-                    unresolvedCallIds.Remove(functionResultContent.CallId);
-                    if (unresolvedCallIds.Count == 0)
-                    {
-                        firstUnresolvedIndex = -1;
-                    }
-
-                    continue;
-                }
-
-                if (content is ToolApprovalResponseContent toolApprovalResponseContent)
-                {
-                    // 审批响应同样代表对应工具调用已完成，不能将审批前的 FunctionCallContent 裁剪掉。
-                    unresolvedCallIds.Remove(toolApprovalResponseContent.ToolCall.CallId);
-                    if (unresolvedCallIds.Count == 0)
-                    {
-                        firstUnresolvedIndex = -1;
-                    }
-                }
-            }
-        }
-
-        if (pendingMessage?.Contents is {Count: > 0})
-        {
-            foreach (var content in pendingMessage.Contents.OfType<ToolApprovalResponseContent>())
-            {
-                // 当前审批响应尚未进入历史，但它会闭合对应的工具调用，需参与裁剪判断。
-                unresolvedCallIds.Remove(content.ToolCall.CallId);
-            }
-
-            if (unresolvedCallIds.Count == 0)
-            {
-                firstUnresolvedIndex = -1;
-            }
-        }
-
-        if (firstUnresolvedIndex < 0 || unresolvedCallIds.Count == 0)
-        {
-            return messages;
-        }
-
-        //从起点处移除
-        return messages.Take(firstUnresolvedIndex).ToList();
-    }
-
     /// <inheritdoc />
     public async IAsyncEnumerable<AgentMessage> SendMessageAsync(
         ConversationSessionId sessionId,
@@ -239,7 +138,6 @@ public class MafAgentChatClient : IAgentChatClient
             lease.Session ??= await CreateSessionAsync(
                 lease.Agent,
                 sessionId,
-                chatMessage,
                 cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -287,7 +185,7 @@ public class MafAgentChatClient : IAgentChatClient
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                currentLease.Invalidate();
+                // 取消后保留会话运行时供下次续用；遗留的未闭合工具调用由 ToolCheckAiAgent 在下次运行入口补全占位结果
                 throw;
             }
             catch (Exception exception)

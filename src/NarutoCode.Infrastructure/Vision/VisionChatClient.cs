@@ -3,6 +3,7 @@ using System.ClientModel;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Configurations;
 using NarutoCode.Domain.Enums;
+using NarutoCode.Infrastructure.ChatClients;
 using OpenAI;
 using OpenAI.Responses;
 
@@ -84,7 +85,9 @@ public sealed class VisionChatClient : IVisionChatClient
                 BaseUrl = _configuration.Address,
                 MaxRetries = 3,
                 Timeout = TimeSpan.FromSeconds(_configuration.TimeoutSeconds),
-                ApiKey = _configuration.ApiKey
+                ApiKey = _configuration.ApiKey,
+                // UA 统一改写为产品标识（Handlers 注入，SDK 负责 HttpClient 生命周期）
+                Handlers = [new ProductHttpClient.AnthropicUserAgentHandler()]
             }.AsIChatClient(_configuration.Model),
             _ => throw new InvalidOperationException(
                 $"视觉模型协议 {_configuration.Protocol} 不受支持，仅支持 OpenAIChat、OpenAIResponses 或 Anthropic。")
@@ -130,7 +133,9 @@ public sealed class VisionChatClient : IVisionChatClient
             new OpenAIClientOptions
             {
                 Endpoint = new Uri(_configuration.Address),
-                NetworkTimeout = TimeSpan.FromSeconds(_configuration.TimeoutSeconds)
+                NetworkTimeout = TimeSpan.FromSeconds(_configuration.TimeoutSeconds),
+                // 传输层统一改写 User-Agent 为产品标识
+                Transport = ProductHttpClient.SharedTransport
             });
     }
 }

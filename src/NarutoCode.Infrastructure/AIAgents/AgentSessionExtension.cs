@@ -100,5 +100,23 @@ public static class AgentSessionExtension
                 state.LastInputTokenCount = usage.Details.InputTokenCount;
             }
         }
+
+        /// <summary>
+        /// 获取会话内存中的消息记录，供工具延续检查读取历史尾部未闭合的工具调用。
+        /// </summary>
+        /// <param name="agent">当前运行中的 Agent，用于解析持久化历史提供器。</param>
+        /// <returns>内存中的全部聊天消息。</returns>
+        public List<ChatMessage> GetMessages(AIAgent agent)
+        {
+#pragma warning disable MAAI001
+            var persistenceChatHistoryProvider = agent.GetService<PersistenceChatHistoryProvider>();
+#pragma warning restore MAAI001
+            if (persistenceChatHistoryProvider == null)
+            {
+                throw new InvalidOperationException("PersistenceChatHistoryProvider需要在 agent运行时使用");
+            }
+
+            return persistenceChatHistoryProvider.GetMessages(agentSession);
+        }
     }
 }

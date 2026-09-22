@@ -411,8 +411,6 @@ internal sealed class TuiChatApplication(
         }
         catch (OperationCanceledException) when (operationCancellationTokenSource.IsCancellationRequested)
         {
-            //取消的时候 不需要重置会话的状态  todo 待测试，这里要检验下 是否会出现 task清空
-             await conversationService.ResetRuntimeSessionAsync(sessionId, CancellationToken.None);
             assistantMessage.Append(new AgentMessage(AgentMessageType.Error, "当前操作已取消。"));
         }
         finally

@@ -108,14 +108,6 @@ public class ConversationService(
     }
 
     /// <inheritdoc />
-    public Task ResetRuntimeSessionAsync(
-        ConversationSessionId sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        return agentChatClient.ResetRuntimeSessionAsync(sessionId, cancellationToken);
-    }
-
-    /// <inheritdoc />
     public Task<IReadOnlyList<WorkspaceSummary>> ListWorkspacesAsync(
         CancellationToken cancellationToken = default)
     {

@@ -1,4 +1,4 @@
-using Anthropic;
+﻿using Anthropic;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain.Configurations;
 
@@ -18,6 +18,9 @@ public class AnthropicChatClientFactory : IChatClientFactory
             MaxRetries = 3,
             Timeout = NetworkTimeout,
             ApiKey = configuration.ApiKey,
+            // Handlers 由 SDK 接线到自管 HttpClient；实测 AnthropicClient.Dispose 会连带释放外部传入的
+            // HttpClient，因此该链路不走共享实例，通过 Handlers 注入 UA 改写（SDK 负责生命周期）
+            Handlers = [new ProductHttpClient.AnthropicUserAgentHandler()]
         }.AsIChatClient(configuration.Model);
     }
 }

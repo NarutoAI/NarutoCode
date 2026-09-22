@@ -83,6 +83,17 @@ public class PersistenceChatHistoryProvider(
         return result;
     }
 
+    /// <summary>
+    /// 获取会话内存中的消息记录，供工具延续检查在每次运行入口读取历史尾部。
+    /// </summary>
+    /// <param name="session">当前 Agent 会话。</param>
+    /// <returns>内存中的全部聊天消息。</returns>
+    public List<ChatMessage> GetMessages(AgentSession session)
+    {
+        var state = _sessionState.GetOrInitializeState(session);
+        return state.Messages;
+    }
+
     protected override async ValueTask StoreChatHistoryAsync(InvokedContext context,
         CancellationToken cancellationToken = new CancellationToken())
     {

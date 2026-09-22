@@ -7,6 +7,7 @@ using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders.AgentMode;
 using NarutoCode.Infrastructure.AIAgents.Composition;
 using NarutoCode.Infrastructure.AIAgents.DelegatingChatClients;
+using NarutoCode.Infrastructure.AIAgents.DelegatingAiAgent;
 
 namespace NarutoCode.Infrastructure.AIAgents;
 
@@ -53,18 +54,6 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             sessionId,
             () => CreateConversationRuntime(workingDirectory),
             cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public void ResetCurrentConversation(ConversationSessionId sessionId)
-    {
-        if (Volatile.Read(ref _disposed) != 0)
-        {
-            return;
-        }
-
-        var workingDirectory = WorkspacePath.Normalize(_workspaceContextAccessor.Current.WorkingDirectory);
-        _runtimeCache.Invalidate(workingDirectory, sessionId);
     }
 
     /// <inheritdoc />
@@ -119,7 +108,7 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             profile,
             (dir, shell) => CreateAgent(dir, shell, shellFactory, AgentProfile.SubAgent)));
 
-        return _dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
+        var agent = _dynamicChatClient.AsHarnessAgent(new HarnessAgentOptions
         {
             HarnessInstructions = composition.Instructions,
             Name = "NarutoCode",
@@ -141,6 +130,9 @@ public sealed class AgentFactory : IAgentFactory, IAsyncDisposable
             },
             LoopEvaluators = [.. composition.LoopEvaluators]
         }, _loggerFactory);
+
+        // 仅会话级 Agent 包裹工具延续检查：中断/取消后下次运行自动补全未闭合工具调用；子 Agent 单轮生命周期不需要
+        return profile == AgentProfile.Session ? new ToolCheckAiAgent(agent) : agent;
     }
 #pragma warning restore MAAI001
 

@@ -17,10 +17,4 @@ public interface IAgentFactory
     ValueTask<IConversationAgentLease> AcquireCurrentConversationAsync(
         ConversationSessionId sessionId,
         CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 使当前工作目录中指定会话的运行时失效；下一次执行将依据持久化历史重建。
-    /// </summary>
-    /// <param name="sessionId">会话标识。</param>
-    void ResetCurrentConversation(ConversationSessionId sessionId);
 }

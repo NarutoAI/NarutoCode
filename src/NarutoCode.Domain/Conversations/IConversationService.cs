@@ -92,16 +92,6 @@ public interface IConversationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 重置指定对话的运行时 Agent 会话，避免取消后复用半截工具调用上下文。
-    /// </summary>
-    /// <param name="sessionId">需要重置的会话标识。</param>
-    /// <param name="cancellationToken">取消令牌。</param>
-    /// <returns>表示异步重置操作的任务。</returns>
-    Task ResetRuntimeSessionAsync(
-        ConversationSessionId sessionId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// 按最近更新时间倒序列出包含历史会话的工作区。
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>
