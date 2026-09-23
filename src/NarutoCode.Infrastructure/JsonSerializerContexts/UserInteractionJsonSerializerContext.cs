@@ -13,6 +13,7 @@ namespace NarutoCode.Infrastructure.JsonSerializerContexts;
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(UserInteractionRequest))]
 [JsonSerializable(typeof(UserInteractionResult))]
+[JsonSerializable(typeof(UserInteractionItemPayload))]
 [JsonSerializable(typeof(UserInteractionOption))]
 [JsonSerializable(typeof(List<UserInteractionOption>))]
 [JsonSerializable(typeof(IReadOnlyList<UserInteractionOption>))]
@@ -58,6 +59,39 @@ internal sealed partial class UserInteractionJsonSerializerContext : JsonSeriali
     internal static string SerializeResult(UserInteractionResult result)
     {
         return JsonSerializer.Serialize(result, Default.UserInteractionResult);
+    }
+
+    /// <summary>
+    /// 序列化交互 item 复合载荷（请求 + 可空结果）为 agent_session_items.payload JSON。
+    /// </summary>
+    /// <param name="payload">复合载荷。</param>
+    /// <returns>JSON 文本。</returns>
+    internal static string SerializeItemPayload(UserInteractionItemPayload payload)
+    {
+        return JsonSerializer.Serialize(payload, Default.UserInteractionItemPayload);
+    }
+
+    /// <summary>
+    /// 从 agent_session_items.payload 还原交互 item 复合载荷；空或损坏载荷返回 <see langword="null" />。
+    /// </summary>
+    /// <param name="payload">持久化 JSON。</param>
+    /// <returns>复合载荷。</returns>
+    internal static UserInteractionItemPayload? DeserializeItemPayload(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize(payload, Default.UserInteractionItemPayload);
+        }
+        catch (JsonException)
+        {
+            // 单条脏数据不阻断 pending 交互恢复
+            return null;
+        }
     }
 
     /// <summary>

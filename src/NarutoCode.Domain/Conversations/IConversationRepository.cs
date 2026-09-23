@@ -117,12 +117,13 @@ public interface IConversationRepository
 
 
     /// <summary>
-    /// 
+    /// 按创建顺序获取指定会话的 UI 历史（agent_session_items 完成态投影，
+    /// 含用户输入、助手回复、思考、工具调用、审批请求与用户交互问答卡片）。
     /// </summary>
-    /// <param name="conversationId"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    Task<IReadOnlyList<Message>> ListMessagesWithUIAsync(
+    /// <param name="conversationId">会话标识。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>按时间顺序排列的 UI 历史消息。</returns>
+    Task<IReadOnlyList<ConversationHistoryMessage>> ListItemsAsync(
         long conversationId,
         CancellationToken cancellationToken = default);
     /// <summary>

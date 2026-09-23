@@ -70,4 +70,19 @@ public class Conversation
     /// 本地会话为空字符串。
     /// </summary>
     public string SourceId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 创建会话时生效的 LLM 提供商。
+    /// </summary>
+    public string LlmProvider { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 创建会话时生效的模型名。
+    /// </summary>
+    public string LlmModel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 创建会话时的推理强度（low/medium/high/xhigh；空字符串表示未设置）。
+    /// </summary>
+    public string ReasoningEffort { get; set; } = string.Empty;
 }

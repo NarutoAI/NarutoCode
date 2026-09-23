@@ -565,6 +565,18 @@ NarutoCode 会按工作目录保存会话历史。默认数据文件位置：
 ~/.narutocode/data/data.db
 ```
 
+本地数据库为 SQLite，表结构采用 snake_case 命名、雪花 BIGINT 主键、无外键设计，共 5 张表：
+
+| 表名 | 职责 |
+| --- | --- |
+| `agent_workspaces` | 工作目录实体（侧边栏分组维度） |
+| `agent_sessions` | 会话记录（含创建时生效的 `llm_provider` / `llm_model` / `reasoning_effort` 与 Token 统计） |
+| `agent_session_items` | UI 渲染历史 Item（仅完成态落库；用户交互问答卡片等待态即落库、终态回写，同时作为交互等待态的恢复来源） |
+| `agent_chat_messages` | LLM 聊天历史（append-only，四列设计：role/type/model_content/created_at；`temporary` 表示框架临时注入，不进 UI 与恢复） |
+| `agent_chat_message_runtimes` | LLM 运行时上下文（覆盖式，压缩策略专用，按雪花 id 排序） |
+
+> 注意：本版本为破坏性表结构重设计，新表使用全新 snake_case 表名，启动时自动创建；旧版 PascalCase 表（`Projects` / `Conversations` / `Messages` / `ConversationRuntimeMessages` / `AgentInteractions`）不做迁移也不删除，留存于库文件中，历史数据视为作废。
+
 每个会话的 Agent 运行模式（plan/execute 等）会按会话 id 单独持久化在 `~/.narutocode/data/agent-modes/` 目录下的 JSON 文件中，重启或恢复会话后自动还原上次使用的模式。
 
 每个会话的 Agent 任务列表也会按会话 id 单独持久化在 `~/.narutocode/data/agent-tasks/` 目录下的 JSON 文件中，重启或恢复会话后自动还原任务及其状态、依赖关系和输出信息。

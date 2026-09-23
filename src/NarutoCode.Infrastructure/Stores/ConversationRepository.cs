@@ -6,15 +6,21 @@ using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Entities;
 using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
+using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Workspaces;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
 
 namespace NarutoCode.Infrastructure.Stores;
 
 /// <summary>
-/// 基于 SQLite 的对话仓储实现，负责本地会话与消息持久化。
+/// 基于 SQLite 的对话仓储实现（v2 snake_case 表结构），
+/// 负责工作区、会话、UI 历史（agent_session_items）与 LLM 历史（agent_chat_messages）的持久化读写。
 /// </summary>
-public sealed class ConversationRepository(SqliteConnectionFactory connectionFactory) : IConversationRepository
+/// <param name="connectionFactory">SQLite 连接工厂。</param>
+/// <param name="llmSettingsService">LLM 运行时设置，会话创建时记录生效的 provider/model/effort。</param>
+public sealed class ConversationRepository(
+    SqliteConnectionFactory connectionFactory,
+    ILlmSettingsService llmSettingsService) : IConversationRepository
 {
     /// <inheritdoc />
     public async Task<Conversation> GetOrCreateByWorkDirectoryAsync(
@@ -38,7 +44,6 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         return await CreateForProjectIdAsync(projectId, cancellationToken);
     }
 
-    
     public async Task<IReadOnlyList<ConversationSummary>> ListByWorkDirectoryAsync(
         string workDirectory,
         CancellationToken cancellationToken = default)
@@ -51,37 +56,33 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         workDirectory = WorkspacePath.Normalize(workDirectory);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
+        // 会话列表与预览：UI 历史改由 agent_session_items 提供（userMessage kind 即真实用户输入）
         command.CommandText =
             """
             SELECT
-                c."Id",
-                c."Title",
-                c."CreatedAt",
-                c."UpdatedAt",
-                c."TokenCount",
-                c."LastUsageTokenCount",
-                COUNT(m."Id") AS "MessageCount",
+                c.id,
+                c.title,
+                c.created_at,
+                c.updated_at,
+                c.token_count,
+                c.last_usage_token_count,
+                (SELECT COUNT(*) FROM agent_session_items i
+                 WHERE i.session_id = c.id) AS message_count,
                 COALESCE((
-                    SELECT um."Content"
-                    FROM "Messages" um
-                    WHERE um."ConversationId" = c."Id"
-                      AND um."Role" = 'user'
-                      AND um."Visibility" = $visibility
-                    ORDER BY um."CreatedAt" DESC, um."Id" DESC
+                    SELECT p.payload
+                    FROM agent_session_items p
+                    WHERE p.session_id = c.id
+                      AND p.kind = 'userMessage'
+                    ORDER BY p.id DESC
                     LIMIT 1
-                ), '') AS "LastUserMessagePreview"
-            FROM "Conversations" c
-            INNER JOIN "Projects" p ON p."Id" = c."ProjectId"
-            LEFT JOIN "Messages" m
-                ON m."ConversationId" = c."Id"
-               AND m."Visibility" = $visibility
-            WHERE p."WorkDirectory" = $workDirectory
-              AND c."Source" = $localSource
-            GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt", c."TokenCount", c."LastUsageTokenCount"
-            ORDER BY c."UpdatedAt" DESC;
+                ), '') AS last_user_message_payload
+            FROM agent_sessions c
+            INNER JOIN agent_workspaces w ON w.id = c.workspace_id
+            WHERE w.work_directory = $workDirectory
+              AND c.source = $localSource
+            ORDER BY c.updated_at DESC;
             """;
         AddParameter(command, "$workDirectory", workDirectory);
-        AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
         AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
         var summaries = new List<ConversationSummary>();
@@ -96,7 +97,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 Convert.ToInt32(reader.GetValue(6), CultureInfo.InvariantCulture),
                 Convert.ToInt64(reader.GetValue(4), CultureInfo.InvariantCulture),
                 Convert.ToInt64(reader.GetValue(5), CultureInfo.InvariantCulture),
-                CreateMessagePreview(reader.GetString(7))));
+                CreateMessagePreview(reader.IsDBNull(7) ? string.Empty : reader.GetString(7))));
         }
 
         return summaries;
@@ -119,20 +120,20 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         command.CommandText =
             """
             SELECT
-                p."Id",
-                p."Name",
-                p."WorkDirectory",
-                p."SortOrder",
-                p."CreatedAt",
-                p."UpdatedAt",
-                COALESCE(MAX(c."UpdatedAt"), p."UpdatedAt") AS "LastUpdatedAt",
-                COUNT(c."Id") AS "ConversationCount"
-            FROM "Projects" p
-            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id" AND c."Source" = $localSource
-            WHERE p."Id" = $projectId
-            GROUP BY p."Id", p."Name", p."WorkDirectory", p."SortOrder", p."CreatedAt", p."UpdatedAt";
+                w.id,
+                w.name,
+                w.work_directory,
+                w.sort_order,
+                w.created_at,
+                w.updated_at,
+                COALESCE(MAX(c.updated_at), w.updated_at) AS last_updated_at,
+                COUNT(c.id) AS conversation_count
+            FROM agent_workspaces w
+            LEFT JOIN agent_sessions c ON c.workspace_id = w.id AND c.source = $localSource
+            WHERE w.id = $workspaceId
+            GROUP BY w.id, w.name, w.work_directory, w.sort_order, w.created_at, w.updated_at;
             """;
-        AddParameter(command, "$projectId", projectId);
+        AddParameter(command, "$workspaceId", projectId);
         AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -164,36 +165,32 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
 
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
+        // 会话列表与预览：UI 历史改由 agent_session_items 提供（userMessage kind 即真实用户输入）
         command.CommandText =
             """
             SELECT
-                c."Id",
-                c."Title",
-                c."CreatedAt",
-                c."UpdatedAt",
-                c."TokenCount",
-                c."LastUsageTokenCount",
-                COUNT(m."Id") AS "MessageCount",
+                c.id,
+                c.title,
+                c.created_at,
+                c.updated_at,
+                c.token_count,
+                c.last_usage_token_count,
+                (SELECT COUNT(*) FROM agent_session_items i
+                 WHERE i.session_id = c.id) AS message_count,
                 COALESCE((
-                    SELECT um."Content"
-                    FROM "Messages" um
-                    WHERE um."ConversationId" = c."Id"
-                      AND um."Role" = 'user'
-                      AND um."Visibility" = $visibility
-                    ORDER BY um."CreatedAt" DESC, um."Id" DESC
+                    SELECT p.payload
+                    FROM agent_session_items p
+                    WHERE p.session_id = c.id
+                      AND p.kind = 'userMessage'
+                    ORDER BY p.id DESC
                     LIMIT 1
-                ), '') AS "LastUserMessagePreview"
-            FROM "Conversations" c
-            LEFT JOIN "Messages" m
-                ON m."ConversationId" = c."Id"
-               AND m."Visibility" = $visibility
-            WHERE c."ProjectId" = $projectId
-              AND c."Source" = $localSource
-            GROUP BY c."Id", c."Title", c."CreatedAt", c."UpdatedAt", c."TokenCount", c."LastUsageTokenCount"
-            ORDER BY c."UpdatedAt" DESC;
+                ), '') AS last_user_message_payload
+            FROM agent_sessions c
+            WHERE c.workspace_id = $workspaceId
+              AND c.source = $localSource
+            ORDER BY c.updated_at DESC;
             """;
-        AddParameter(command, "$projectId", projectId);
-        AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
+        AddParameter(command, "$workspaceId", projectId);
         AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
         var summaries = new List<ConversationSummary>();
@@ -208,7 +205,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 Convert.ToInt32(reader.GetValue(6), CultureInfo.InvariantCulture),
                 Convert.ToInt64(reader.GetValue(4), CultureInfo.InvariantCulture),
                 Convert.ToInt64(reader.GetValue(5), CultureInfo.InvariantCulture),
-                CreateMessagePreview(reader.GetString(7))));
+                CreateMessagePreview(ReadUserMessagePreview(reader.IsDBNull(7) ? string.Empty : reader.GetString(7)))));
         }
 
         return summaries;
@@ -223,18 +220,18 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         command.CommandText =
             """
             SELECT
-                p."Id",
-                p."Name",
-                p."WorkDirectory",
-                p."SortOrder",
-                p."CreatedAt",
-                p."UpdatedAt",
-                COALESCE(MAX(c."UpdatedAt"), p."UpdatedAt") AS "LastUpdatedAt",
-                COUNT(c."Id") AS "ConversationCount"
-            FROM "Projects" p
-            LEFT JOIN "Conversations" c ON c."ProjectId" = p."Id" AND c."Source" = $localSource
-            GROUP BY p."Id", p."Name", p."WorkDirectory", p."SortOrder", p."CreatedAt", p."UpdatedAt"
-            ORDER BY p."SortOrder", "LastUpdatedAt" DESC, p."Id";
+                w.id,
+                w.name,
+                w.work_directory,
+                w.sort_order,
+                w.created_at,
+                w.updated_at,
+                COALESCE(MAX(c.updated_at), w.updated_at) AS last_updated_at,
+                COUNT(c.id) AS conversation_count
+            FROM agent_workspaces w
+            LEFT JOIN agent_sessions c ON c.workspace_id = w.id AND c.source = $localSource
+            GROUP BY w.id, w.name, w.work_directory, w.sort_order, w.created_at, w.updated_at
+            ORDER BY w.sort_order, last_updated_at DESC, w.id;
             """;
         AddParameter(command, "$localSource", (int)ConversationSource.Local);
 
@@ -289,13 +286,15 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId"
-            FROM "Conversations"
-            WHERE "ProjectId" = $projectId AND "Source" = $source AND "SourceId" = $sourceId
-            ORDER BY "UpdatedAt" DESC
+            SELECT id, title, created_at, updated_at, workspace_id, work_directory,
+                   token_count, last_usage_token_count, last_input_token_count, source, source_id,
+                   llm_provider, llm_model, reasoning_effort
+            FROM agent_sessions
+            WHERE workspace_id = $workspaceId AND source = $source AND source_id = $sourceId
+            ORDER BY updated_at DESC
             LIMIT 1;
             """;
-        AddParameter(command, "$projectId", projectId);
+        AddParameter(command, "$workspaceId", projectId);
         AddParameter(command, "$source", (int)source);
         AddParameter(command, "$sourceId", sourceId);
 
@@ -333,6 +332,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         var workDirectory = await GetProjectWorkDirectoryAsync(connection, projectId, cancellationToken)
             ?? throw new InvalidOperationException($"项目不存在：{projectId}");
         var now = DateTime.Now;
+        var llm = llmSettingsService.CurrentLlm;
         var conversation = new Conversation
         {
             ProjectId = projectId,
@@ -341,7 +341,11 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             CreatedAt = now,
             UpdatedAt = now,
             Source = source,
-            SourceId = sourceId
+            SourceId = sourceId,
+            // 记录创建时生效的 LLM 元数据（提供商/模型/推理强度）
+            LlmProvider = llm.Provider,
+            LlmModel = llm.Model,
+            ReasoningEffort = llmSettingsService.CurrentEffort.ToString().ToLowerInvariant()
         };
 
         await InsertConversationAsync(connection, conversation, cancellationToken);
@@ -358,9 +362,11 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId"
-            FROM "Conversations"
-            WHERE "Id" = $conversationId
+            SELECT id, title, created_at, updated_at, workspace_id, work_directory,
+                   token_count, last_usage_token_count, last_input_token_count, source, source_id,
+                   llm_provider, llm_model, reasoning_effort
+            FROM agent_sessions
+            WHERE id = $conversationId
             LIMIT 1;
             """;
         AddParameter(command, "$conversationId", conversationId);
@@ -374,138 +380,83 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         return ReadConversation(reader);
     }
 
-    /// <summary>
-    /// 获取用于 UI 展示的可见消息。
-    /// </summary>
-    /// <param name="conversationId">对话 ID。</param>
-    /// <param name="cancellationToken">取消令牌。</param>
-    /// <returns>UI 消息列表。</returns>
-    public async Task<IReadOnlyList<Message>> ListMessagesWithUIAsync(
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConversationHistoryMessage>> ListItemsAsync(
         long conversationId,
         CancellationToken cancellationToken = default)
     {
-        var messages = await ListVisibleMessagesCoreAsync(
-            conversationId,
-            filterUiMessageTypes: true,
-            cancellationToken);
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        // UI 渲染历史 = agent_session_items（含完成态消息与用户交互问答卡片）
+        command.CommandText =
+            """
+            SELECT kind, status, payload
+            FROM agent_session_items
+            WHERE session_id = $sessionId
+            ORDER BY id;
+            """;
+        AddParameter(command, "$sessionId", conversationId);
 
-        var resultList = new List<Message>();
-        // ask_user 工具调用与 FunctionResultContent 分别存于相邻的模型消息中，按 CallId 缓存后再投影为问答摘要。
-        var pendingUserInteractionCalls = new Dictionary<string, FunctionCallContent>(StringComparer.Ordinal);
-        foreach (var (index,item) in messages.Index())
+        var messages = new List<ConversationHistoryMessage>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
         {
-            var contents = AIContentJsonSerializerContext.DeserializeContents(item.ModelContent);
-            var modelContent = string.Empty;
-            foreach (var itemContent in contents)
+            var kind = reader.GetString(0);
+            var status = reader.GetString(1);
+            var payload = reader.GetString(2);
+            var historyMessage = ProjectItemToHistoryMessage(kind, status, payload);
+            if (historyMessage is not null)
             {
-                var messageType = AgentMessageType.Content;
-                var content = string.Empty;
-                if (itemContent is TextContent textContent)
-                {
-                    content = textContent.Text;
-                }
-                else if (itemContent is FunctionCallContent functionCallContent)
-                {
-                    if (IsUserInteractionFunction(functionCallContent.Name))
-                    {
-                        // 交互调用不显示内部工具名，等待其 FunctionResultContent 到达后投影为问题与答案。
-                        pendingUserInteractionCalls[functionCallContent.CallId] = functionCallContent;
-                        continue;
-                    }
-
-                    messageType = AgentMessageType.ToolCall;
-                    content = functionCallContent.Name;
-                }
-                else if (itemContent is FunctionResultContent functionResultContent)
-                {
-                    if (!pendingUserInteractionCalls.Remove(functionResultContent.CallId, out var interactionCall))
-                    {
-                        // 非用户交互工具结果保持隐藏，避免将运行时内部结果暴露到聊天区。
-                        continue;
-                    }
-
-                    content = FormatUserInteractionHistory(interactionCall, functionResultContent.Result);
-                }
-                else if (itemContent is ToolApprovalRequestContent
-                         {
-                             ToolCall: FunctionCallContent functionCallContentApproval
-                         } toolApprovalRequestContent)
-                {
-                 
-                    // content =
-                    //     $"{functionCallContentApproval.Name}({string.Join(',', functionCallContentApproval.Arguments ?? new Dictionary<string, object?>())})";
-                    content =functionCallContentApproval.Name;
-                    //判断下 如果不是最后一行的话，就不需要设置modelcontent字段
-                    if (index == messages.Count - 1)
-                    {
-                        messageType = AgentMessageType.ToolApprovalRequest;
-                        modelContent =
-                            AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(
-                                toolApprovalRequestContent);
-                    }
-                    else
-                    {
-                        messageType = AgentMessageType.ToolCall;
-                    }
-                }
-                else if (itemContent is TextReasoningContent textReasoningContent)
-                {
-                    messageType = AgentMessageType.Thinking;
-                    content = textReasoningContent.Text;
-                }
-                else if (itemContent is ErrorContent errorContent)
-                {
-                    messageType = AgentMessageType.Error;
-                    content = errorContent.Message;
-                }
-                else
-                {
-                    continue;
-                }
-
-                resultList.Add(new Message
-                {
-                    Id = item.Id,
-                    ConversationId = item.ConversationId,
-                    Role = item.Role,
-                    Content = content,
-                    ModelContent = modelContent,
-                    CreatedAt = item.CreatedAt,
-                    ContentType = item.ContentType,
-                    MessageType = messageType,
-                    Visibility = item.Visibility
-                });
+                messages.Add(historyMessage);
             }
         }
 
-        return resultList;
+        return messages;
     }
 
-  
     public async Task<IReadOnlyList<Message>> ListMessagesAsync(
         long conversationId,
         CancellationToken cancellationToken = default)
     {
-        return await ListVisibleMessagesCoreAsync(
-            conversationId,
-            filterUiMessageTypes: false,
-            cancellationToken);
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        // LLM 恢复用全量历史：排除 temporary（框架临时注入不参与恢复，等价旧版 Hidden 过滤）
+        command.CommandText =
+            """
+            SELECT id, session_id, role, type, model_content, created_at
+            FROM agent_chat_messages
+            WHERE session_id = $sessionId
+              AND type <> $temporary
+            ORDER BY created_at, id;
+            """;
+        AddParameter(command, "$sessionId", conversationId);
+        AddParameter(command, "$temporary", AgentMessageTypeNames.Temporary);
+
+        var messages = new List<Message>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            messages.Add(ReadMessage(reader));
+        }
+
+        return messages;
     }
-    
+
     public async Task<IReadOnlyList<Message>> ListRuntimeMessagesAsync(
         long conversationId,
         CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
+        // 运行时上下文按雪花 id 单调排序（替代旧版 Sequence 列）
         command.CommandText =
             """
-            SELECT "Id", "ConversationId", "Role", "ModelContent", "CreatedAt"
-            FROM "ConversationRuntimeMessages"
-            WHERE "ConversationId" = $conversationId
-            ORDER BY "Sequence", "Id";
+            SELECT id, session_id, role, model_content, created_at
+            FROM agent_chat_message_runtimes
+            WHERE session_id = $sessionId
+            ORDER BY id;
             """;
-        AddParameter(command, "$conversationId", conversationId);
+        AddParameter(command, "$sessionId", conversationId);
 
         var messages = new List<Message>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -518,14 +469,74 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
                 Role = reader.GetString(2),
                 ModelContent = reader.GetString(3),
                 CreatedAt = ReadDateTime(reader, 4),
-                Content = string.Empty,
-                ContentType = string.Empty,
-                MessageType = AgentMessageType.Content,
-                Visibility = MessageVisibility.Visible
+                Type = AgentMessageTypeNames.Content
             });
         }
 
         return messages;
+    }
+
+    /// <summary>
+    /// 将 agent_session_items 行投影为 TUI 历史消息：
+    /// 用户交互 pending → Content（问题）；completed/cancelled/expired → Content（问答摘要）；
+    /// toolApprovalRequest（含审批 JSON）保持审批卡片，审批响应行与临时注入不渲染。
+    /// </summary>
+    /// <param name="kind">Item 类型。</param>
+    /// <param name="status">Item 状态。</param>
+    /// <param name="payload">Item 载荷 JSON。</param>
+    /// <returns>历史消息；不需要渲染时返回 <see langword="null" />。</returns>
+    private static ConversationHistoryMessage? ProjectItemToHistoryMessage(string kind, string status, string payload)
+    {
+        // 用户交互问答卡片：payload 为 { request, result } 复合结构
+        if (string.Equals(kind, ConversationItemKinds.UserInteraction, StringComparison.Ordinal))
+        {
+            var interaction = UserInteractionJsonSerializerContext.DeserializeItemPayload(payload);
+            if (interaction is null)
+            {
+                return null;
+            }
+
+            // 等待中的交互仅渲染问题，不泄露内部工具名
+            var question = string.IsNullOrWhiteSpace(interaction.Request.Title)
+                ? interaction.Request.Question
+                : interaction.Request.Question;
+            var content = interaction.Result is null
+                ? $"❓ {question}"
+                : $"❓ {question}{Environment.NewLine}↳ {interaction.Result.Value}";
+            return CreateInteractionHistoryMessage(content);
+        }
+
+        // 消息类 Item：payload 直接携带 TUI 契约字段，按 kind 还原消息类型后重建历史消息
+        var messagePayload = ConversationItemJsonSerializerContext.DeserializePayload(payload);
+        if (messagePayload is null)
+        {
+            return null;
+        }
+
+        return new ConversationHistoryMessage(
+            Enum.TryParse<ConversationMessageRole>(messagePayload.Role, ignoreCase: true, out var parsedRole)
+                ? parsedRole
+                : ConversationMessageRole.assistant,
+            new AgentMessage(
+                ConversationItemKinds.ToMessageType(kind),
+                messagePayload.Content,
+                messagePayload.ToolApprovalContent,
+                messagePayload.CreatedAt));
+    }
+
+    /// <summary>
+    /// 构建用户交互问答卡片对应的历史消息（角色固定为 assistant，内容为问答摘要文本）。
+    /// </summary>
+    /// <param name="content">问答摘要文本。</param>
+    /// <returns>历史消息。</returns>
+    private static ConversationHistoryMessage CreateInteractionHistoryMessage(string content)
+    {
+        return new ConversationHistoryMessage(
+            ConversationMessageRole.assistant,
+            new AgentMessage(
+                AgentMessageType.Content,
+                content,
+                createdAt: DateTimeOffset.Now));
     }
 
     /// <summary>
@@ -541,9 +552,9 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         {
             command.CommandText =
                 """
-                INSERT INTO "Projects" ("Name", "WorkDirectory", "SortOrder", "CreatedAt", "UpdatedAt")
+                INSERT INTO agent_workspaces (name, work_directory, sort_order, created_at, updated_at)
                 VALUES ($name, $workDirectory, 0, $createdAt, $updatedAt)
-                ON CONFLICT("WorkDirectory") DO NOTHING;
+                ON CONFLICT(work_directory) DO NOTHING;
                 """;
             AddParameter(command, "$name", CreateProjectName(workDirectory));
             AddParameter(command, "$workDirectory", workDirectory);
@@ -553,7 +564,7 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         }
 
         await using var selectCommand = connection.CreateCommand();
-        selectCommand.CommandText = "SELECT \"Id\" FROM \"Projects\" WHERE \"WorkDirectory\" = $workDirectory LIMIT 1;";
+        selectCommand.CommandText = "SELECT id FROM agent_workspaces WHERE work_directory = $workDirectory LIMIT 1;";
         AddParameter(selectCommand, "$workDirectory", workDirectory);
         var projectId = await selectCommand.ExecuteScalarAsync(cancellationToken);
         return Convert.ToInt64(projectId, CultureInfo.InvariantCulture);
@@ -569,10 +580,9 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText =
-            "UPDATE \"Projects\" SET \"UpdatedAt\" = $updatedAt WHERE \"Id\" = $projectId;";
+        command.CommandText = "UPDATE agent_workspaces SET updated_at = $updatedAt WHERE id = $workspaceId;";
         AddParameter(command, "$updatedAt", FormatDateTime(updatedAt));
-        AddParameter(command, "$projectId", projectId);
+        AddParameter(command, "$workspaceId", projectId);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -585,8 +595,8 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT \"WorkDirectory\" FROM \"Projects\" WHERE \"Id\" = $projectId LIMIT 1;";
-        AddParameter(command, "$projectId", projectId);
+        command.CommandText = "SELECT work_directory FROM agent_workspaces WHERE id = $workspaceId LIMIT 1;";
+        AddParameter(command, "$workspaceId", projectId);
         var result = await command.ExecuteScalarAsync(cancellationToken);
         return result is null or DBNull ? null : Convert.ToString(result, CultureInfo.InvariantCulture);
     }
@@ -599,13 +609,15 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT "Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId"
-            FROM "Conversations"
-            WHERE "ProjectId" = $projectId
-            ORDER BY "UpdatedAt" DESC
+            SELECT id, title, created_at, updated_at, workspace_id, work_directory,
+                   token_count, last_usage_token_count, last_input_token_count, source, source_id,
+                   llm_provider, llm_model, reasoning_effort
+            FROM agent_sessions
+            WHERE workspace_id = $workspaceId
+            ORDER BY updated_at DESC
             LIMIT 1;
             """;
-        AddParameter(command, "$projectId", projectId);
+        AddParameter(command, "$workspaceId", projectId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -630,7 +642,10 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             LastUsageTokenCount = reader.GetInt64(7),
             LastInputTokenCount = reader.GetInt64(8),
             Source = (ConversationSource)reader.GetInt32(9),
-            SourceId = reader.GetString(10)
+            SourceId = reader.GetString(10),
+            LlmProvider = reader.GetString(11),
+            LlmModel = reader.GetString(12),
+            ReasoningEffort = reader.GetString(13)
         };
     }
 
@@ -642,73 +657,30 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO "Conversations" ("Id", "Title", "CreatedAt", "UpdatedAt", "ProjectId", "WorkDirectory", "TokenCount", "LastUsageTokenCount", "LastInputTokenCount", "Source", "SourceId")
-            VALUES ($id, $title, $createdAt, $updatedAt, $projectId, $workDirectory, $tokenCount, $lastUsageTokenCount, $lastInputTokenCount, $source, $sourceId);
+            INSERT INTO agent_sessions
+                (id, title, created_at, updated_at, workspace_id, work_directory,
+                 token_count, last_usage_token_count, last_input_token_count, source, source_id,
+                 llm_provider, llm_model, reasoning_effort)
+            VALUES
+                ($id, $title, $createdAt, $updatedAt, $workspaceId, $workDirectory,
+                 $tokenCount, $lastUsageTokenCount, $lastInputTokenCount, $source, $sourceId,
+                 $llmProvider, $llmModel, $reasoningEffort);
             """;
         AddParameter(command, "$id", conversation.Id);
         AddParameter(command, "$title", conversation.Title);
         AddParameter(command, "$createdAt", FormatDateTime(conversation.CreatedAt));
         AddParameter(command, "$updatedAt", FormatDateTime(conversation.UpdatedAt));
-        AddParameter(command, "$projectId", conversation.ProjectId);
+        AddParameter(command, "$workspaceId", conversation.ProjectId);
         AddParameter(command, "$workDirectory", conversation.WorkDirectory);
         AddParameter(command, "$tokenCount", conversation.TokenCount);
         AddParameter(command, "$lastUsageTokenCount", conversation.LastUsageTokenCount);
         AddParameter(command, "$lastInputTokenCount", conversation.LastInputTokenCount);
         AddParameter(command, "$source", (int)conversation.Source);
         AddParameter(command, "$sourceId", conversation.SourceId);
+        AddParameter(command, "$llmProvider", conversation.LlmProvider);
+        AddParameter(command, "$llmModel", conversation.LlmModel);
+        AddParameter(command, "$reasoningEffort", conversation.ReasoningEffort);
         await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    private async Task<IReadOnlyList<Message>> ListVisibleMessagesCoreAsync(
-        long conversationId,
-        bool filterUiMessageTypes,
-        CancellationToken cancellationToken)
-    {
-        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = filterUiMessageTypes
-            ?
-            """
-            SELECT "Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility"
-            FROM "Messages"
-            WHERE "ConversationId" = $conversationId 
-              AND "Visibility" = $visibility
-              AND "MessageType" IN ($contentType, $thinkingType, $approvalType, $toolCallType,$errorType)
-            ORDER BY "CreatedAt", "Id";
-            """
-            :
-            """
-            SELECT "Id", "ConversationId", "Role", "Content", "ModelContent", "CreatedAt", "ContentType", "MessageType", "Visibility"
-            FROM "Messages"
-            WHERE "ConversationId" = $conversationId
-              AND "Visibility" = $visibility
-             AND "MessageType"!= $temporary
-            ORDER BY "CreatedAt", "Id";
-            """;
-
-        AddParameter(command, "$conversationId", conversationId);
-        AddParameter(command, "$visibility", MessageVisibility.Visible.ToString());
-        if (filterUiMessageTypes)
-        {
-            AddParameter(command, "$contentType", (int) AgentMessageType.Content);
-            AddParameter(command, "$thinkingType", (int) AgentMessageType.Thinking);
-            AddParameter(command, "$approvalType", (int) AgentMessageType.ToolApprovalRequest);
-            AddParameter(command, "$toolCallType", (int) AgentMessageType.ToolCall);
-            AddParameter(command, "$errorType", (int) AgentMessageType.Error);
-        }
-        else
-        {
-            AddParameter(command, "temporary", (int) AgentMessageType.Temporary);
-        }
-
-        var messages = new List<Message>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            messages.Add(ReadMessage(reader));
-        }
-
-        return messages;
     }
 
     private static Message ReadMessage(DbDataReader reader)
@@ -718,13 +690,21 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
             Id = reader.GetInt64(0),
             ConversationId = reader.GetInt64(1),
             Role = reader.GetString(2),
-            Content = reader.GetString(3),
+            Type = reader.GetString(3),
             ModelContent = reader.GetString(4),
-            CreatedAt = ReadDateTime(reader, 5),
-            ContentType = reader.GetString(6),
-            MessageType = (AgentMessageType) reader.GetInt32(7),
-            Visibility = Enum.Parse<MessageVisibility>(reader.GetString(8))
+            CreatedAt = ReadDateTime(reader, 5)
         };
+    }
+
+    /// <summary>
+    /// 从用户消息 Item 载荷中提取预览文本。
+    /// </summary>
+    /// <param name="payload">Item 载荷 JSON。</param>
+    /// <returns>预览文本；解析失败返回空字符串。</returns>
+    private static string ReadUserMessagePreview(string payload)
+    {
+        var messagePayload = ConversationItemJsonSerializerContext.DeserializePayload(payload);
+        return messagePayload?.Content ?? string.Empty;
     }
 
     private static void AddParameter(DbCommand command, string name, object? value)
@@ -746,60 +726,6 @@ public sealed class ConversationRepository(SqliteConnectionFactory connectionFac
     private static string FormatDateTime(DateTime value)
     {
         return value.ToString("O", CultureInfo.InvariantCulture);
-    }
-
-
-
-    /// <summary>
-    /// 判断函数调用是否为需要在历史中投影为问答摘要的用户交互工具。
-    /// </summary>
-    /// <param name="functionName">函数名称。</param>
-    /// <returns>属于 ask_user 工具时返回 <see langword="true" />。</returns>
-    private static bool IsUserInteractionFunction(string functionName)
-    {
-        return functionName is "narutocode_ask_user_question"
-            // 兼容此前已持久化的旧工具调用，避免历史重载泄露工具名。
-            or "ask_user_question" or "ask_user_input" or "narutocode_ask_user_input";
-    }
-
-    /// <summary>
-    /// 将已完成的 ask_user 调用投影为用户可读的提问与回答，避免展示内部工具名。
-    /// </summary>
-    /// <param name="functionCall">原始函数调用，承载问题参数。</param>
-    /// <param name="result">工具返回给 Agent 的结果。</param>
-    /// <returns>聊天历史展示文本。</returns>
-    private static string FormatUserInteractionHistory(FunctionCallContent functionCall, object? result)
-    {
-        var question = TryGetFunctionArgument(functionCall.Arguments, "Question")
-                       ?? "Agent 向你发起提问";
-        var answer = Convert.ToString(result, CultureInfo.InvariantCulture);
-        return string.IsNullOrWhiteSpace(answer)
-            ? $"❓ {question}"
-            : $"❓ {question}{Environment.NewLine}↳ {answer}";
-    }
-
-    /// <summary>
-    /// 从函数参数中按名称读取文本值，兼容源生成反序列化后的 <see cref="JsonElement" />。
-    /// </summary>
-    /// <param name="arguments">函数参数。</param>
-    /// <param name="name">参数名称。</param>
-    /// <returns>参数文本；不存在或为空时返回 <see langword="null" />。</returns>
-    private static string? TryGetFunctionArgument(IDictionary<string, object?>? arguments, string name)
-    {
-        if (arguments is null)
-        {
-            return null;
-        }
-
-        var pair = arguments.FirstOrDefault(argument => string.Equals(argument.Key, name, StringComparison.OrdinalIgnoreCase));
-        if (string.IsNullOrEmpty(pair.Key) || pair.Value is null)
-        {
-            return null;
-        }
-
-        return pair.Value is JsonElement { ValueKind: JsonValueKind.String } jsonElement
-            ? jsonElement.GetString()
-            : Convert.ToString(pair.Value, CultureInfo.InvariantCulture);
     }
 
     private static string CreateMessagePreview(string value)

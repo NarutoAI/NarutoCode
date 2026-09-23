@@ -2,11 +2,9 @@
 using NarutoCode.Application.Agents;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Conversations;
-using NarutoCode.Domain.Entities;
 using NarutoCode.Domain.Enums;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Domain.Workspaces;
-
 namespace NarutoCode.Application.Conversations;
 
 /// <summary>
@@ -22,8 +20,8 @@ public class ConversationService(
     {
         var conversation =
             await conversationRepository.GetOrCreateByWorkDirectoryAsync(workDirectory, cancellationToken);
-        var messages = await conversationRepository.ListMessagesWithUIAsync(conversation.Id, cancellationToken);
-        var historyMessages = messages.Select(ToHistoryMessage).ToArray();
+        // UI 渲染历史直接取自 agent_session_items 完成态投影
+        var historyMessages = await conversationRepository.ListItemsAsync(conversation.Id, cancellationToken);
 
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
@@ -86,8 +84,8 @@ public class ConversationService(
     {
         var conversation = await conversationRepository.GetByIdAsync(conversationId.Value, cancellationToken)
                            ?? throw new InvalidOperationException($"会话不存在：{conversationId.Value}");
-        var messages = await conversationRepository.ListMessagesWithUIAsync(conversation.Id, cancellationToken);
-        var historyMessages = messages.Select(ToHistoryMessage).ToArray();
+        // UI 渲染历史直接取自 agent_session_items 完成态投影
+        var historyMessages = await conversationRepository.ListItemsAsync(conversation.Id, cancellationToken);
 
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
@@ -164,20 +162,5 @@ public class ConversationService(
         var conversation = await conversationRepository.GetOrCreateBySourceAsync(
             workspace.Id, source, sourceId, cancellationToken);
         return new ConversationSessionId(conversation.Id);
-    }
-
-    private static ConversationHistoryMessage ToHistoryMessage(Message message)
-    {
-        var role = Enum.TryParse<ConversationMessageRole>(message.Role, out var parsedRole)
-            ? parsedRole
-            : ConversationMessageRole.assistant;
-
-        return new ConversationHistoryMessage(
-            role,
-            new AgentMessage(
-                message.MessageType,
-                message.Content,
-                message.ModelContent,
-                new DateTimeOffset(message.CreatedAt)));
     }
 }

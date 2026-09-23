@@ -1,69 +1,49 @@
-using NarutoCode.Domain.Messages;
+﻿using NarutoCode.Domain.Messages;
 
 namespace NarutoCode.Domain.Entities;
 
 /// <summary>
-/// 消息实体
-/// 表示对话中的一条消息
+/// 消息实体，对应表 agent_chat_messages（append-only 四列设计）。
+/// 仅承载 LLM 聊天历史的持久化形态：UI 渲染历史由会话 Item（agent_session_items）承载。
 /// </summary>
 public class Message
 {
+    /// <summary>
+    /// 创建消息，雪花 ID 在构造时生成。
+    /// </summary>
     public Message()
     {
         Id = SnowflakeIdHelper.Instance.NextId();
     }
 
     /// <summary>
-    /// 消息ID（主键）
+    /// 消息 ID（雪花主键，应用层生成）。
     /// </summary>
     public long Id { get; set; }
 
     /// <summary>
-    /// 所属对话ID（外键）
+    /// 所属会话 ID（应用层引用 agent_sessions.id；无外键）。
     /// </summary>
     public long ConversationId { get; set; }
 
     /// <summary>
-    /// 所属对话
-    /// </summary>
-    public virtual Conversation? Conversation { get; private set; }
-
-    /// <summary>
-    /// 消息角色
-    /// user: 用户消息
-    /// assistant: AI助手消息
-    /// system: 系统消息
+    /// 消息角色：user / assistant / tool / system 等 ChatRole 值。
     /// </summary>
     public string Role { get; set; } = string.Empty;
 
     /// <summary>
-    /// 消息内容
+    /// 消息类型（snake_case 文本，见 <see cref="AgentMessageTypeNames" />）。
+    /// temporary 表示框架临时注入，不进 UI 历史也不恢复到 Agent 上下文。
     /// </summary>
-    public string Content { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
 
     /// <summary>
-    /// 模型内容
+    /// 模型内容：ChatMessage.Contents 的 AIContent 多态 JSON。
     /// </summary>
     public string ModelContent { get; set; } = string.Empty;
-    
 
     /// <summary>
-    /// 消息创建时间
+    /// 消息落库时间。
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.Now;
-
-    /// <summary>
-    /// 内容类型（可选，用于区分不同类型的消息，如文本、图片、文件等）
-    /// </summary>
-    public string ContentType { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 消息类型
-    /// </summary>
-    public AgentMessageType MessageType { get; set; }
-
-    /// <summary>
-    /// 消息可见性，用于过滤框架内部补充的上下文消息。
-    /// </summary>
-    public MessageVisibility Visibility { get; set; } = MessageVisibility.Visible;
 }
