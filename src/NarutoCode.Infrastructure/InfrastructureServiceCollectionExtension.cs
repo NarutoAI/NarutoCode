@@ -101,6 +101,8 @@ public static class InfrastructureServiceCollectionExtension
             services.AddSingleton(subAgentRegistry);
             services.AddSingleton<McpClientManager>();
             services.AddSingleton<ConversationRepositoryCoordinator>();
+            // UI 渲染历史写入通道：MafAgentItemTracker 经此落 agent_session_items
+            services.AddSingleton<SqliteSessionItemWriter>();
             services.AddSingleton<IChatHistoryPersistenceHandler, ConversationChatHistoryPersistenceHandler>();
             services.AddSingleton<IConversationRepository, ConversationRepository>();
             services.AddSingleton<IUserInteractionStore, UserInteractionRepository>();

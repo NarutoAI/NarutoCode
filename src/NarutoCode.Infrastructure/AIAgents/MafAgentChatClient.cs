@@ -10,6 +10,7 @@ using NarutoCode.Domain.Configurations.Settings;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Messages;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
+using NarutoCode.Infrastructure.Stores;
 using NarutoCode.Infrastructure.Vision;
 
 namespace NarutoCode.Infrastructure.AIAgents;
@@ -23,6 +24,8 @@ public class MafAgentChatClient : IAgentChatClient
 
     private readonly IConversationRepository _conversationRepository;
 
+    private readonly SqliteSessionItemWriter _sessionItemWriter;
+
     private readonly ILogger<MafAgentChatClient> _logger;
 
     private readonly ILlmSettingsService _llmSettingsService;
@@ -32,17 +35,21 @@ public class MafAgentChatClient : IAgentChatClient
     /// </summary>
     /// <param name="agentFactory">Agent 工厂。</param>
     /// <param name="llmSettingsService">当前主模型设置服务，用于判断主模型是否支持视觉。</param>
+    /// <param name="sessionItemWriter">UI Item 写入器（agent_session_items）。</param>
     public MafAgentChatClient(IAgentFactory agentFactory,
         IConversationRepository conversationRepository,
         ILlmSettingsService llmSettingsService,
+        SqliteSessionItemWriter sessionItemWriter,
         ILogger<MafAgentChatClient> logger)
     {
         ArgumentNullException.ThrowIfNull(agentFactory);
         ArgumentNullException.ThrowIfNull(llmSettingsService);
+        ArgumentNullException.ThrowIfNull(sessionItemWriter);
 
         _agentFactory = agentFactory;
         _conversationRepository = conversationRepository;
         _llmSettingsService = llmSettingsService;
+        _sessionItemWriter = sessionItemWriter;
         _logger = logger;
     }
 
@@ -153,11 +160,23 @@ public class MafAgentChatClient : IAgentChatClient
 
         if (initializationException is not null)
         {
-            _logger.LogError(initializationException,"Agent 会话初始化失败");
+            _logger.LogError(initializationException, "Agent 会话初始化失败");
             yield return new AgentMessage(
                 AgentMessageType.Error,
                 $"Agent 会话初始化失败：{initializationException.Message}");
             yield break;
+        }
+
+        // per-turn UI Item 追踪器：把流式 AIContent 聚合为结构化 agent_session_items（面向 UI，独立于模型持久化）
+        var itemTracker = new MafAgentItemTracker(sessionId.Value, _sessionItemWriter, _logger);
+
+        // 用户真实输入即时落 userMessage Item（UI 历史还原原始输入，而非视觉预处理后的文本）
+        if (message.Type == AgentMessageType.Content)
+        {
+            await itemTracker.RecordUserInputAsync(
+                message.Content,
+                message.Attachments,
+                cancellationToken);
         }
 
         await using var currentLease = lease!;
@@ -169,97 +188,146 @@ public class MafAgentChatClient : IAgentChatClient
                 cancellationToken: cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
-        while (true)
+        try
         {
-            AgentResponseUpdate? item = null;
-            Exception? streamingException = null;
-            var hasNext = false;
-
-            try
+            while (true)
             {
-                hasNext = await enumerator.MoveNextAsync();
-                if (hasNext)
+                AgentResponseUpdate? item = null;
+                Exception? streamingException = null;
+                var hasNext = false;
+
+                try
                 {
-                    item = enumerator.Current;
+                    hasNext = await enumerator.MoveNextAsync();
+                    if (hasNext)
+                    {
+                        item = enumerator.Current;
+                    }
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                // 取消后保留会话运行时供下次续用；遗留的未闭合工具调用由 ToolCheckAiAgent 在下次运行入口补全占位结果
-                throw;
-            }
-            catch (Exception exception)
-            {
-                streamingException = exception;
-            }
-
-            if (streamingException is not null)
-            {
-                currentLease.Invalidate();
-                _logger.LogError(exception:streamingException,"Agent 执行失败");
-                yield return new AgentMessage(
-                    AgentMessageType.Error,
-                    $"Agent 执行失败：{streamingException.Message}");
-                yield break;
-            }
-
-            if (!hasNext)
-            {
-                break;
-            }
-
-            var reasoningContent = item!.Contents?.OfType<TextReasoningContent>().FirstOrDefault();
-            if (reasoningContent is not null && !string.IsNullOrWhiteSpace(reasoningContent.Text))
-            {
-                yield return new(AgentMessageType.Thinking, reasoningContent.Text);
-                continue;
-            }
-
-            var functionCallContent = item.Contents?.OfType<FunctionCallContent>().FirstOrDefault();
-            if (functionCallContent is not null)
-            {
-                // ask_user 工具由 TUI 的结构化问卷卡片负责展示，不能再泄露内部工具名。
-                if (!IsUserInteractionFunction(functionCallContent.Name))
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    yield return new AgentMessage(AgentMessageType.ToolCall, functionCallContent.Name);
+                    // 取消后保留会话运行时供下次续用；遗留的未闭合工具调用由 ToolCheckAiAgent 在下次运行入口补全占位结果
+                    // UI Item 侧：先按取消态关闭活跃段与未闭合工具调用，再向调用方传播取消
+                    await itemTracker.CloseActiveAsync(failed: true, CancellationToken.None);
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    streamingException = exception;
                 }
 
-                continue;
-            }
-
-            var toolApprovalRequestContent = item.Contents?.OfType<ToolApprovalRequestContent>().FirstOrDefault();
-            if (toolApprovalRequestContent != null)
-            {
-                if (toolApprovalRequestContent.ToolCall is FunctionCallContent functionCallContentApproval)
+                if (streamingException is not null)
                 {
-                    yield return new(AgentMessageType.ToolApprovalRequest,
-                        $"{functionCallContentApproval.Name}({string.Join(',', functionCallContentApproval.Arguments ?? new Dictionary<string, object?>())})",
-                        toolApprovalContent: AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(
-                            toolApprovalRequestContent));
+                    currentLease.Invalidate();
+                    _logger.LogError(exception: streamingException, "Agent 执行失败");
+                    await itemTracker.OnErrorAsync(
+                        $"Agent 执行失败：{streamingException.Message}",
+                        CancellationToken.None);
+                    yield return new AgentMessage(
+                        AgentMessageType.Error,
+                        $"Agent 执行失败：{streamingException.Message}");
+                    yield break;
                 }
 
-                yield break;
+                if (!hasNext)
+                {
+                    break;
+                }
+
+                var reasoningContent = item!.Contents?.OfType<TextReasoningContent>().FirstOrDefault();
+                if (reasoningContent is not null && !string.IsNullOrWhiteSpace(reasoningContent.Text))
+                {
+                    await itemTracker.OnReasoningDeltaAsync(reasoningContent.Text, cancellationToken);
+                    yield return new(AgentMessageType.Thinking, reasoningContent.Text);
+                    continue;
+                }
+
+                var functionCallContent = item.Contents?.OfType<FunctionCallContent>().FirstOrDefault();
+                if (functionCallContent is not null)
+                {
+                    // ask_user 工具由 TUI 的结构化问卷卡片负责展示，不能再泄露内部工具名。
+                    if (!IsUserInteractionFunction(functionCallContent.Name))
+                    {
+                        await itemTracker.OnToolCallAsync(
+                            functionCallContent.CallId,
+                            functionCallContent.Name,
+                            functionCallContent.Arguments);
+                        yield return new AgentMessage(AgentMessageType.ToolCall, functionCallContent.Name);
+                    }
+
+                    continue;
+                }
+
+                var functionResultContent = item.Contents?.OfType<FunctionResultContent>().FirstOrDefault();
+                if (functionResultContent is not null)
+                {
+                    // ask_user 交互工具的结果由 userInteraction Item 状态机承载，不落 toolCall Item
+                    var resultToolName = itemTracker.ResolveToolName(functionResultContent.CallId);
+                    if (resultToolName is null || !IsUserInteractionFunction(resultToolName))
+                    {
+                        await itemTracker.OnToolResultAsync(
+                            functionResultContent.CallId,
+                            functionResultContent.Result,
+                            functionResultContent.Exception,
+                            cancellationToken);
+                    }
+
+                    continue;
+                }
+
+                var toolApprovalRequestContent = item.Contents?.OfType<ToolApprovalRequestContent>().FirstOrDefault();
+                if (toolApprovalRequestContent != null)
+                {
+                    if (toolApprovalRequestContent.ToolCall is FunctionCallContent functionCallContentApproval)
+                    {
+                        // 审批卡片完整落库：审批上下文 JSON 供历史重载后重建审批交互
+                        await itemTracker.OnToolApprovalRequestAsync(
+                            functionCallContentApproval.Name,
+                            AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(
+                                toolApprovalRequestContent),
+                            CancellationToken.None);
+
+                        yield return new(AgentMessageType.ToolApprovalRequest,
+                            $"{functionCallContentApproval.Name}({string.Join(',', functionCallContentApproval.Arguments ?? new Dictionary<string, object?>())})",
+                            toolApprovalContent: AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(
+                                toolApprovalRequestContent));
+                    }
+
+                    yield break;
+                }
+
+                var errorContent = item.Contents?.OfType<ErrorContent>().FirstOrDefault();
+                if (errorContent is not null)
+                {
+                    var errorText = errorContent.Message ?? string.Empty;
+                    await itemTracker.OnErrorAsync(errorText, cancellationToken);
+                    yield return new(AgentMessageType.Error, errorText);
+                    continue;
+                }
+
+                //更新当前会话的使用量
+                var usageContent = item.Contents?.OfType<UsageContent>().FirstOrDefault();
+                if (usageContent != null)
+                {
+                    currentAgentSession.SetSessionUsage(usageContent);
+                    yield return new(AgentMessageType.Usage,
+                        usageContent.Details.TotalTokenCount.GetValueOrDefault().ToString());
+                }
+                else if (!string.IsNullOrEmpty(item.Text))
+                {
+                    await itemTracker.OnMessageDeltaAsync(item.Text, cancellationToken);
+                    yield return new(AgentMessageType.Content, item.Text);
+                }
             }
 
-            var errorContent = item.Contents?.OfType<ErrorContent>().FirstOrDefault();
-            if (errorContent is not null)
-            {
-                yield return new(AgentMessageType.Error, errorContent.Message);
-                continue;
-            }
-
-            //更新当前会话的使用量
-            var usageContent = item.Contents?.OfType<UsageContent>().FirstOrDefault();
-            if (usageContent != null)
-            {
-                currentAgentSession.SetSessionUsage(usageContent);
-                yield return new(AgentMessageType.Usage,
-                    usageContent.Details.TotalTokenCount.GetValueOrDefault().ToString());
-            }
-            else if (!string.IsNullOrEmpty(item.Text))
-            {
-                yield return new(AgentMessageType.Content, item.Text);
-            }
+            // 流正常结束：按成功态关闭所有活跃段与未闭合工具调用
+            await itemTracker.CloseActiveAsync(failed: false, cancellationToken);
+        }
+        finally
+        {
+            // yield break 提前退出（审批暂停/初始化失败）或异常退出时兜底关闭活跃 Item，
+            // CloseActiveAsync 幂等（活跃集合已清空时为空操作），审批场景已先行关闭不会重复落库
+            await itemTracker.CloseActiveAsync(failed: true, CancellationToken.None);
         }
     }
 
@@ -352,7 +420,7 @@ public class MafAgentChatClient : IAgentChatClient
     /// <returns>需要预处理时返回 <see langword="true" />。</returns>
     internal static bool NeedsVisionPreprocessing(bool supportsVision, VisionConfiguration? vision)
     {
-        return !supportsVision && vision is { IsValid: true };
+        return !supportsVision && vision is {IsValid: true};
     }
 
     /// <summary>

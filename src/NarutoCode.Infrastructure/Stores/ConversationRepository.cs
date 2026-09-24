@@ -390,7 +390,7 @@ public sealed class ConversationRepository(
         // UI 渲染历史 = agent_session_items（含完成态消息与用户交互问答卡片）
         command.CommandText =
             """
-            SELECT kind, status, payload
+            SELECT kind, status, payload, created_at
             FROM agent_session_items
             WHERE session_id = $sessionId
             ORDER BY id;
@@ -404,7 +404,8 @@ public sealed class ConversationRepository(
             var kind = reader.GetString(0);
             var status = reader.GetString(1);
             var payload = reader.GetString(2);
-            var historyMessage = ProjectItemToHistoryMessage(kind, status, payload);
+            var createdAt = ReadDateTime(reader, 3);
+            var historyMessage = ProjectItemToHistoryMessage(kind, status, payload, createdAt);
             if (historyMessage is not null)
             {
                 messages.Add(historyMessage);
@@ -478,16 +479,22 @@ public sealed class ConversationRepository(
 
     /// <summary>
     /// 将 agent_session_items 行投影为 TUI 历史消息：
-    /// 用户交互 pending → Content（问题）；completed/cancelled/expired → Content（问答摘要）；
-    /// toolApprovalRequest（含审批 JSON）保持审批卡片，审批响应行与临时注入不渲染。
+    /// payload 按 kind 反序列化为专属强类型结构（与写入端 MafAgentItemTracker 的 payload record 一一对应），
+    /// 再按 kind 还原 TUI 消息类型；用户交互沿用 { request, result } 复合载荷的状态机投影；
+    /// 非完成态（pending 等）消息类 Item 不渲染。
     /// </summary>
     /// <param name="kind">Item 类型。</param>
     /// <param name="status">Item 状态。</param>
     /// <param name="payload">Item 载荷 JSON。</param>
+    /// <param name="createdAt">Item 落库时间。</param>
     /// <returns>历史消息；不需要渲染时返回 <see langword="null" />。</returns>
-    private static ConversationHistoryMessage? ProjectItemToHistoryMessage(string kind, string status, string payload)
+    private static ConversationHistoryMessage? ProjectItemToHistoryMessage(
+        string kind,
+        string status,
+        string payload,
+        DateTime createdAt)
     {
-        // 用户交互问答卡片：payload 为 { request, result } 复合结构
+        // 用户交互问答卡片：payload 为 { request, result } 复合结构（pending 态也渲染，仅展示问题）
         if (string.Equals(kind, ConversationItemKinds.UserInteraction, StringComparison.Ordinal))
         {
             var interaction = UserInteractionJsonSerializerContext.DeserializeItemPayload(payload);
@@ -496,32 +503,123 @@ public sealed class ConversationRepository(
                 return null;
             }
 
-            // 等待中的交互仅渲染问题，不泄露内部工具名
-            var question = string.IsNullOrWhiteSpace(interaction.Request.Title)
-                ? interaction.Request.Question
-                : interaction.Request.Question;
+            var question = interaction.Request.Question;
             var content = interaction.Result is null
                 ? $"❓ {question}"
                 : $"❓ {question}{Environment.NewLine}↳ {interaction.Result.Value}";
             return CreateInteractionHistoryMessage(content);
         }
 
-        // 消息类 Item：payload 直接携带 TUI 契约字段，按 kind 还原消息类型后重建历史消息
-        var messagePayload = ConversationItemJsonSerializerContext.DeserializePayload(payload);
-        if (messagePayload is null)
+        // 用户交互等待态仅 userInteraction 需要渲染（作为等待卡片），消息类非完成态跳过
+        var isCompleted = string.Equals(status, ConversationItemStatuses.Succeeded, StringComparison.Ordinal)
+                          || string.Equals(status, ConversationItemStatuses.Failed, StringComparison.Ordinal);
+        if (!isCompleted)
+        {
+            return null;
+        }
+
+        // 按 kind 反序列化专属 payload，映射为 TUI 契约（角色 / 消息类型 / 展示文本）
+        var createdAtOffset = new DateTimeOffset(createdAt);
+        return kind switch
+        {
+            ConversationItemKinds.UserMessage => ProjectUserMessage(payload, createdAtOffset),
+            ConversationItemKinds.AgentMessage => ProjectAgentMessage(
+                ConversationItemJsonSerializerContext.DeserializePayload<AgentMessageItemPayload>(payload)?.Text,
+                ConversationMessageRole.assistant,
+                AgentMessageType.Content,
+                createdAtOffset),
+            ConversationItemKinds.Reasoning => ProjectAgentMessage(
+                ConversationItemJsonSerializerContext.DeserializePayload<ReasoningItemPayload>(payload)?.Text,
+                ConversationMessageRole.assistant,
+                AgentMessageType.Thinking,
+                createdAtOffset),
+            ConversationItemKinds.ToolCall => ProjectToolCall(payload, createdAtOffset),
+            ConversationItemKinds.ToolApprovalRequest => ProjectToolApprovalRequest(payload, createdAtOffset),
+            ConversationItemKinds.Error => ProjectAgentMessage(
+                ConversationItemJsonSerializerContext.DeserializePayload<ErrorItemPayload>(payload)?.Message,
+                ConversationMessageRole.assistant,
+                AgentMessageType.Error,
+                createdAtOffset),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// 投影 userMessage Item：真实用户输入文本 + 图片附件还原为 user 角色内容消息。
+    /// </summary>
+    private static ConversationHistoryMessage? ProjectUserMessage(string payload, DateTimeOffset createdAt)
+    {
+        var userPayload = ConversationItemJsonSerializerContext.DeserializePayload<UserMessageItemPayload>(payload);
+        if (userPayload is null)
+        {
+            return null;
+        }
+
+        // 附件以 base64 字节持久化，重载后直接还原为多模态消息
+        var attachments = userPayload.Attachments is { Count: > 0 }
+            ? userPayload.Attachments
+                .Select(a => new AgentMessageAttachment(a.Data, a.MediaType))
+                .ToArray()
+            : null;
+        return new ConversationHistoryMessage(
+            ConversationMessageRole.user,
+            new AgentMessage(AgentMessageType.Content, userPayload.Text, attachments: attachments, createdAt: createdAt));
+    }
+
+    /// <summary>
+    /// 投影纯文本类 Item（agentMessage/reasoning/error）：payload 文本映射为对应类型的 assistant 消息。
+    /// </summary>
+    private static ConversationHistoryMessage? ProjectAgentMessage(
+        string? text,
+        ConversationMessageRole role,
+        AgentMessageType messageType,
+        DateTimeOffset createdAt)
+    {
+        if (text is null)
         {
             return null;
         }
 
         return new ConversationHistoryMessage(
-            Enum.TryParse<ConversationMessageRole>(messagePayload.Role, ignoreCase: true, out var parsedRole)
-                ? parsedRole
-                : ConversationMessageRole.assistant,
+            role,
+            new AgentMessage(messageType, text, createdAt: createdAt));
+    }
+
+    /// <summary>
+    /// 投影 toolCall Item：历史渲染只显示工具名称，不带参数与执行结果。
+    /// </summary>
+    private static ConversationHistoryMessage? ProjectToolCall(string payload, DateTimeOffset createdAt)
+    {
+        var toolPayload = ConversationItemJsonSerializerContext.DeserializePayload<ToolCallItemPayload>(payload);
+        if (toolPayload is null)
+        {
+            return null;
+        }
+
+        // 历史消息仅还原工具名，保持历史视图简洁（参数与结果仍在 payload 中留存）
+        return new ConversationHistoryMessage(
+            ConversationMessageRole.tool,
+            new AgentMessage(AgentMessageType.ToolCall, toolPayload.ToolName, createdAt: createdAt));
+    }
+
+    /// <summary>
+    /// 投影 toolApprovalRequest Item：审批上下文 JSON 随消息回传，历史重载后可继续响应审批。
+    /// </summary>
+    private static ConversationHistoryMessage? ProjectToolApprovalRequest(string payload, DateTimeOffset createdAt)
+    {
+        var approvalPayload = ConversationItemJsonSerializerContext.DeserializePayload<ToolApprovalRequestItemPayload>(payload);
+        if (approvalPayload is null)
+        {
+            return null;
+        }
+
+        return new ConversationHistoryMessage(
+            ConversationMessageRole.assistant,
             new AgentMessage(
-                ConversationItemKinds.ToMessageType(kind),
-                messagePayload.Content,
-                messagePayload.ToolApprovalContent,
-                messagePayload.CreatedAt));
+                AgentMessageType.ToolApprovalRequest,
+                $"{approvalPayload.ToolName}()",
+                approvalPayload.ApprovalContent,
+                createdAt));
     }
 
     /// <summary>
@@ -697,14 +795,14 @@ public sealed class ConversationRepository(
     }
 
     /// <summary>
-    /// 从用户消息 Item 载荷中提取预览文本。
+    /// 从 userMessage Item 载荷中提取预览文本。
     /// </summary>
     /// <param name="payload">Item 载荷 JSON。</param>
     /// <returns>预览文本；解析失败返回空字符串。</returns>
     private static string ReadUserMessagePreview(string payload)
     {
-        var messagePayload = ConversationItemJsonSerializerContext.DeserializePayload(payload);
-        return messagePayload?.Content ?? string.Empty;
+        return ConversationItemJsonSerializerContext
+            .DeserializePayload<UserMessageItemPayload>(payload)?.Text ?? string.Empty;
     }
 
     private static void AddParameter(DbCommand command, string name, object? value)

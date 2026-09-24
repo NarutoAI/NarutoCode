@@ -12,13 +12,14 @@ namespace NarutoCode.Infrastructure.Stores;
 
 /// <summary>
 /// 负责将 Agent 消息批量写入本地会话数据库：
-/// agent_chat_messages（四列 append-only，LLM 恢复 + 审计）与
-/// agent_session_items（完成态 UI 渲染历史）在同一事务中写入。
+/// agent_chat_messages（四列 append-only，LLM 恢复 + 审计，面向模型）
+/// 与 agent_chat_message_runtimes（覆盖式运行时上下文）。
+/// UI 渲染历史（agent_session_items，面向 UI）由 MafAgentItemTracker 独立写入，二者职责分离。
 /// </summary>
 public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectionFactory)
 {
     /// <summary>
-    /// 批量追加对话消息与对应的完成态 Item。
+    /// 批量追加对话消息（不产生 UI Item）。
     /// </summary>
     /// <param name="conversationId">对话 ID。</param>
     /// <param name="messages">待写入消息。</param>
@@ -63,7 +64,7 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
     }
 
     /// <summary>
-    /// 在同一个事务中追加消息与完成态 Item、更新 Token 用量并覆盖 LLM 运行时上下文。
+    /// 在同一个事务中追加消息、更新 Token 用量并覆盖 LLM 运行时上下文。
     /// </summary>
     /// <param name="conversationId">对话 ID。</param>
     /// <param name="messages">待追加到历史的新增消息。</param>
@@ -166,7 +167,7 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
     }
 
     /// <summary>
-    /// 写入一条聊天消息（agent_chat_messages 四列），并在同一事务上下文中提取完成态 Item 写入 agent_session_items。
+    /// 写入一条聊天消息（agent_chat_messages 四列，append-only）。
     /// </summary>
     /// <param name="connection">数据库连接。</param>
     /// <param name="transaction">当前事务；无事务时为 <see langword="null" />。</param>
@@ -188,7 +189,7 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         var createdAt = DateTime.Now;
         var messageId = SnowflakeIdHelper.Instance.NextId();
 
-        // 1. 写消息行：四列设计（role/type/model_content/created_at）
+        // 四列设计（role/type/model_content/created_at），面向模型的完整持久化
         await using (DbCommand command = connection.CreateCommand())
         {
             command.Transaction = transaction;
@@ -207,127 +208,6 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
             AddParameter(command, "$createdAt", createdAt.ToString("O", CultureInfo.InvariantCulture));
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
-
-        // 2. 提取完成态 Item（temporary 不落 items，保持 UI 历史纯净）
-        if (isTemporary)
-        {
-            return;
-        }
-
-        foreach (var content in chatMessage.Contents)
-        {
-            var item = TryCreateItem(chatMessage, messageType, content, createdAt);
-            if (item is null)
-            {
-                continue;
-            }
-
-            await InsertItemAsync(connection, transaction, conversationId, item.Value, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// 从 AI 内容单元提取一条完成态 Item；无法映射的内容返回 <see langword="null" />。
-    /// ask_user 交互调用与结果由用户交互 Item（状态机）承载，此处跳过避免双写。
-    /// </summary>
-    /// <param name="chatMessage">所属聊天消息。</param>
-    /// <param name="messageType">消息类型。</param>
-    /// <param name="content">AI 内容单元。</param>
-    /// <param name="createdAt">落库时间。</param>
-    /// <returns>可落库的 Item 元组；不需要落库时为 <see langword="null" />。</returns>
-    private static (string Kind, string Status, ConversationItemPayload Payload)? TryCreateItem(
-        ChatMessage chatMessage,
-        AgentMessageType messageType,
-        AIContent content,
-        DateTime createdAt)
-    {
-        var role = chatMessage.Role.Value;
-        string kind;
-        var status = ConversationItemStatuses.Succeeded;
-        string itemContent;
-        var toolApprovalContent = string.Empty;
-
-        switch (content)
-        {
-            case TextContent textContent:
-                // 用户真实输入与助手最终文本分别落 userMessage/agentMessage
-                kind = string.Equals(role, ChatRole.User.Value, StringComparison.OrdinalIgnoreCase)
-                    ? ConversationItemKinds.UserMessage
-                    : ConversationItemKinds.AgentMessage;
-                itemContent = textContent.Text;
-                break;
-            case TextReasoningContent textReasoningContent:
-                kind = ConversationItemKinds.Reasoning;
-                itemContent = textReasoningContent.Text;
-                break;
-            case FunctionCallContent functionCallContent:
-                if (IsUserInteractionFunction(functionCallContent.Name))
-                {
-                    // 交互问答由 userInteraction Item 承载（等待态 + 终态回写），跳过工具形态双写
-                    return null;
-                }
-
-                kind = ConversationItemKinds.ToolCall;
-                itemContent = functionCallContent.Name;
-                break;
-            case FunctionResultContent:
-                // 工具运行时结果不进 UI 历史（与既有 UI 过滤行为一致）
-                return null;
-            case ToolApprovalRequestContent
-            {
-                ToolCall: FunctionCallContent approvalCall
-            } approvalRequest:
-                // 审批请求卡片：payload 携带完整审批上下文，读取时按位置决定渲染形态
-                kind = ConversationItemKinds.ToolApprovalRequest;
-                itemContent = approvalCall.Name;
-#pragma warning disable MEAI001
-                toolApprovalContent =
-                    AIContentJsonSerializerContext.SerializeToolApprovalRequestContent(approvalRequest);
-#pragma warning restore MEAI001
-                break;
-            case ToolApprovalResponseContent:
-                // 审批响应不进 UI 历史（与既有 UI 过滤行为一致）
-                return null;
-            case ErrorContent errorContent:
-                kind = ConversationItemKinds.Error;
-                status = ConversationItemStatuses.Failed;
-                itemContent = errorContent.Message;
-                break;
-            default:
-                return null;
-        }
-
-        return (kind, status, new ConversationItemPayload(
-            role,
-            AgentMessageTypeNames.ToName(messageType),
-            itemContent,
-            toolApprovalContent));
-    }
-
-    /// <summary>
-    /// 写入一条完成态 Item（agent_session_items）。
-    /// </summary>
-    private static async Task InsertItemAsync(
-        DbConnection connection,
-        DbTransaction? transaction,
-        long conversationId,
-        (string Kind, string Status, ConversationItemPayload Payload) item,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-            """
-            INSERT INTO agent_session_items (id, session_id, kind, status, created_at, payload)
-            VALUES ($id, $sessionId, $kind, $status, $createdAt, $payload);
-            """;
-        AddParameter(command, "$id", SnowflakeIdHelper.Instance.NextId());
-        AddParameter(command, "$sessionId", conversationId);
-        AddParameter(command, "$kind", item.Kind);
-        AddParameter(command, "$status", item.Status);
-        AddParameter(command, "$createdAt", DateTime.Now.ToString("O", CultureInfo.InvariantCulture));
-        AddParameter(command, "$payload", ConversationItemJsonSerializerContext.SerializePayload(item.Payload));
-        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>
@@ -494,16 +374,5 @@ public class ConversationRepositoryCoordinator(SqliteConnectionFactory connectio
         }
 
         return AgentMessageType.Content;
-    }
-
-    /// <summary>
-    /// 判断函数调用是否为用户交互工具（ask_user 系）；
-    /// 交互问答的 UI 形态由 userInteraction Item 承载，工具调用与结果均不落 Item。
-    /// </summary>
-    internal static bool IsUserInteractionFunction(string functionName)
-    {
-        return functionName is "narutocode_ask_user_question"
-            // 兼容此前已持久化的旧工具调用，避免历史重载泄露工具名
-            or "ask_user_question" or "ask_user_input" or "narutocode_ask_user_input";
     }
 }
