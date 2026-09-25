@@ -1,5 +1,4 @@
-﻿using System.Data.Common;
-using System.Globalization;
+﻿using System.Globalization;
 using NarutoCode.Domain.Conversations;
 using NarutoCode.Domain.Interactions;
 using NarutoCode.Infrastructure.JsonSerializerContexts;
@@ -7,12 +6,12 @@ using NarutoCode.Infrastructure.JsonSerializerContexts;
 namespace NarutoCode.Infrastructure.Stores;
 
 /// <summary>
-/// 基于 agent_session_items 的用户交互仓储实现：
+/// 基于 agent_session_items 的用户交互状态机实现（kind = userInteraction）：
 /// 等待态（pending）即落库，作为进程重启后恢复交互卡片的状态源，
 /// 终态经回写更新同一行（等待态即落库以支持进程重启后的交互恢复）。
 /// </summary>
 /// <param name="connectionFactory">SQLite 连接工厂。</param>
-public sealed class UserInteractionRepository(SqliteConnectionFactory connectionFactory) : IUserInteractionStore
+public sealed class AgentSessionItemInteractionStore(SqliteConnectionFactory connectionFactory) : IUserInteractionStore
 {
     /// <inheritdoc />
     public async Task SaveAsync(UserInteractionRequest request, CancellationToken cancellationToken = default)
@@ -27,12 +26,12 @@ public sealed class UserInteractionRepository(SqliteConnectionFactory connection
             INSERT INTO agent_session_items (id, session_id, kind, status, created_at, payload)
             VALUES ($id, $sessionId, $kind, $pending, $createdAt, $payload);
             """;
-        AddParameter(command, "$id", request.Id);
-        AddParameter(command, "$sessionId", request.SessionId);
-        AddParameter(command, "$kind", ConversationItemKinds.UserInteraction);
-        AddParameter(command, "$pending", ConversationItemStatuses.Pending);
-        AddParameter(command, "$createdAt", request.CreatedAt.ToString("O", CultureInfo.InvariantCulture));
-        AddParameter(command, "$payload", UserInteractionJsonSerializerContext.SerializeItemPayload(
+        command.AddParameter("$id", request.Id);
+        command.AddParameter("$sessionId", request.SessionId);
+        command.AddParameter("$kind", ConversationItemKinds.UserInteraction);
+        command.AddParameter("$pending", ConversationItemStatuses.Pending);
+        command.AddParameter("$createdAt", request.CreatedAt.ToString("O", CultureInfo.InvariantCulture));
+        command.AddParameter("$payload", UserInteractionJsonSerializerContext.SerializeItemPayload(
             new UserInteractionItemPayload(request, null)));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -51,9 +50,9 @@ public sealed class UserInteractionRepository(SqliteConnectionFactory connection
             WHERE session_id = $sessionId AND kind = $kind AND status = $pending
             ORDER BY id;
             """;
-        AddParameter(command, "$sessionId", sessionId);
-        AddParameter(command, "$kind", ConversationItemKinds.UserInteraction);
-        AddParameter(command, "$pending", ConversationItemStatuses.Pending);
+        command.AddParameter("$sessionId", sessionId);
+        command.AddParameter("$kind", ConversationItemKinds.UserInteraction);
+        command.AddParameter("$pending", ConversationItemStatuses.Pending);
 
         var requests = new List<UserInteractionRequest>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -88,9 +87,9 @@ public sealed class UserInteractionRepository(SqliteConnectionFactory connection
                 WHERE id = $id AND kind = $kind AND status = $pending
                 LIMIT 1;
                 """;
-            AddParameter(selectCommand, "$id", result.InteractionId);
-            AddParameter(selectCommand, "$kind", ConversationItemKinds.UserInteraction);
-            AddParameter(selectCommand, "$pending", ConversationItemStatuses.Pending);
+            selectCommand.AddParameter("$id", result.InteractionId);
+            selectCommand.AddParameter("$kind", ConversationItemKinds.UserInteraction);
+            selectCommand.AddParameter("$pending", ConversationItemStatuses.Pending);
             var scalar = await selectCommand.ExecuteScalarAsync(cancellationToken);
             payload = scalar as string;
         }
@@ -109,11 +108,11 @@ public sealed class UserInteractionRepository(SqliteConnectionFactory connection
             SET status = $status, payload = $payload
             WHERE id = $id AND status = $pending;
             """;
-        AddParameter(updateCommand, "$id", result.InteractionId);
-        AddParameter(updateCommand, "$status", ToItemStatus(result.Status));
-        AddParameter(updateCommand, "$payload", UserInteractionJsonSerializerContext.SerializeItemPayload(
+        updateCommand.AddParameter("$id", result.InteractionId);
+        updateCommand.AddParameter("$status", ToItemStatus(result.Status));
+        updateCommand.AddParameter("$payload", UserInteractionJsonSerializerContext.SerializeItemPayload(
             new UserInteractionItemPayload(existing.Request, result)));
-        AddParameter(updateCommand, "$pending", ConversationItemStatuses.Pending);
+        updateCommand.AddParameter("$pending", ConversationItemStatuses.Pending);
         await updateCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -129,10 +128,10 @@ public sealed class UserInteractionRepository(SqliteConnectionFactory connection
             SET status = $cancelled
             WHERE session_id = $sessionId AND kind = $kind AND status = $pending;
             """;
-        AddParameter(command, "$sessionId", sessionId);
-        AddParameter(command, "$kind", ConversationItemKinds.UserInteraction);
-        AddParameter(command, "$cancelled", ConversationItemStatuses.Cancelled);
-        AddParameter(command, "$pending", ConversationItemStatuses.Pending);
+        command.AddParameter("$sessionId", sessionId);
+        command.AddParameter("$kind", ConversationItemKinds.UserInteraction);
+        command.AddParameter("$cancelled", ConversationItemStatuses.Cancelled);
+        command.AddParameter("$pending", ConversationItemStatuses.Pending);
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -149,15 +148,4 @@ public sealed class UserInteractionRepository(SqliteConnectionFactory connection
         UserInteractionStatus.Expired => ConversationItemStatuses.Expired,
         _ => ConversationItemStatuses.Cancelled
     };
-
-    /// <summary>
-    /// 添加 SQL 参数（跟随 ConversationRepository 的 ADO.NET 显式参数风格）。
-    /// </summary>
-    private static void AddParameter(DbCommand command, string name, object? value)
-    {
-        var parameter = command.CreateParameter();
-        parameter.ParameterName = name;
-        parameter.Value = value ?? DBNull.Value;
-        command.Parameters.Add(parameter);
-    }
 }

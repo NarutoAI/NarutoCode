@@ -12,16 +12,16 @@ namespace NarutoCode.Application.Conversations;
 /// </summary>
 public class ConversationService(
     IAgentChatClient agentChatClient,
-    IConversationRepository conversationRepository) : IConversationService
+    IAgentSessionRepository agentSessionRepository) : IConversationService
 {
     public async Task<ConversationHistory> LoadWorkspaceHistoryAsync(
         string workDirectory,
         CancellationToken cancellationToken = default)
     {
         var conversation =
-            await conversationRepository.GetOrCreateByWorkDirectoryAsync(workDirectory, cancellationToken);
+            await agentSessionRepository.GetOrCreateByWorkDirectoryAsync(workDirectory, cancellationToken);
         // UI 渲染历史直接取自 agent_session_items 完成态投影
-        var historyMessages = await conversationRepository.ListItemsAsync(conversation.Id, cancellationToken);
+        var historyMessages = await agentSessionRepository.ListItemsAsync(conversation.Id, cancellationToken);
 
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
@@ -34,7 +34,7 @@ public class ConversationService(
         string workDirectory,
         CancellationToken cancellationToken = default)
     {
-        return await conversationRepository.ListByWorkDirectoryAsync(workDirectory, cancellationToken);
+        return await agentSessionRepository.ListByWorkDirectoryAsync(workDirectory, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -43,7 +43,7 @@ public class ConversationService(
         CancellationToken cancellationToken = default)
     {
         var normalizedWorkDirectory = WorkspacePath.Normalize(workDirectory);
-        return conversationRepository.GetOrCreateWorkspaceAsync(normalizedWorkDirectory, cancellationToken);
+        return agentSessionRepository.GetOrCreateWorkspaceAsync(normalizedWorkDirectory, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -51,14 +51,14 @@ public class ConversationService(
         long projectId,
         CancellationToken cancellationToken = default)
     {
-        return await conversationRepository.ListByProjectIdAsync(projectId, cancellationToken);
+        return await agentSessionRepository.ListByProjectIdAsync(projectId, cancellationToken);
     }
 
     public async Task<ConversationHistory> CreateWorkspaceConversationAsync(
         string workDirectory,
         CancellationToken cancellationToken = default)
     {
-        var conversation = await conversationRepository.CreateForWorkDirectoryAsync(workDirectory, cancellationToken);
+        var conversation = await agentSessionRepository.CreateForWorkDirectoryAsync(workDirectory, cancellationToken);
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
             [],
@@ -70,7 +70,7 @@ public class ConversationService(
         long projectId,
         CancellationToken cancellationToken = default)
     {
-        var conversation = await conversationRepository.CreateForProjectIdAsync(projectId, cancellationToken);
+        var conversation = await agentSessionRepository.CreateForProjectIdAsync(projectId, cancellationToken);
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
             [],
@@ -82,10 +82,10 @@ public class ConversationService(
         ConversationSessionId conversationId,
         CancellationToken cancellationToken = default)
     {
-        var conversation = await conversationRepository.GetByIdAsync(conversationId.Value, cancellationToken)
+        var conversation = await agentSessionRepository.GetByIdAsync(conversationId.Value, cancellationToken)
                            ?? throw new InvalidOperationException($"会话不存在：{conversationId.Value}");
         // UI 渲染历史直接取自 agent_session_items 完成态投影
-        var historyMessages = await conversationRepository.ListItemsAsync(conversation.Id, cancellationToken);
+        var historyMessages = await agentSessionRepository.ListItemsAsync(conversation.Id, cancellationToken);
 
         return new ConversationHistory(
             new ConversationSessionId(conversation.Id),
@@ -110,7 +110,7 @@ public class ConversationService(
         CancellationToken cancellationToken = default)
     {
         // 直接委托给仓储聚合查询，保持服务层薄透传
-        return conversationRepository.ListWorkspacesAsync(cancellationToken);
+        return agentSessionRepository.ListWorkspacesAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -141,7 +141,7 @@ public class ConversationService(
         var workspace = await GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
 
         // 查询该项目下指定来源类型与来源标识的最近会话
-        var conversation = await conversationRepository.GetOrCreateBySourceAsync(
+        var conversation = await agentSessionRepository.GetOrCreateBySourceAsync(
             workspace.Id, source, sourceId, cancellationToken);
 
         var history = await LoadConversationHistoryAsync(
@@ -159,7 +159,7 @@ public class ConversationService(
     {
         // 定位项目后按来源标识获取或创建会话，仅返回会话标识，不加载历史
         var workspace = await GetOrCreateWorkspaceAsync(workDirectory, cancellationToken);
-        var conversation = await conversationRepository.GetOrCreateBySourceAsync(
+        var conversation = await agentSessionRepository.GetOrCreateBySourceAsync(
             workspace.Id, source, sourceId, cancellationToken);
         return new ConversationSessionId(conversation.Id);
     }

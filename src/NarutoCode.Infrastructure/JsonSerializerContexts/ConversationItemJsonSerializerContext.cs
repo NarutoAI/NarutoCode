@@ -59,7 +59,7 @@ internal sealed record ErrorItemPayload(string Message);
 
 /// <summary>
 /// 用户交互 item 的复合载荷（kind=userInteraction）：
-/// 等待态只含请求；终态经 UserInteractionRepository.CompleteAsync 回填结果。
+/// 等待态只含请求；终态经 AgentSessionItemInteractionStore.CompleteAsync 回填结果。
 /// </summary>
 /// <param name="Request">交互请求（弹窗渲染所需的完整意图数据）。</param>
 /// <param name="Result">交互结果；等待中为 <see langword="null" />。</param>

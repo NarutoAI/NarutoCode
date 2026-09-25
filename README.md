@@ -571,9 +571,13 @@ NarutoCode 会按工作目录保存会话历史。默认数据文件位置：
 | --- | --- |
 | `agent_workspaces` | 工作目录实体（侧边栏分组维度） |
 | `agent_sessions` | 会话记录（含创建时生效的 `llm_provider` / `llm_model` / `reasoning_effort` 与 Token 统计） |
-| `agent_session_items` | UI 渲染历史 Item（仅完成态落库；用户交互问答卡片等待态即落库、终态回写，同时作为交互等待态的恢复来源） |
-| `agent_chat_messages` | LLM 聊天历史（append-only，四列设计：role/type/model_content/created_at；`temporary` 表示框架临时注入，不进 UI 与恢复） |
+| `agent_session_items` | UI 渲染历史 Item（面向 UI 的独立通道：由 `MafAgentChatClient` 流式侧的 ItemTracker 聚合写入，payload 按 kind 存专属强类型 JSON；用户交互问答卡片等待态即落库、终态回写，同时作为交互等待态的恢复来源） |
+| `agent_chat_messages` | LLM 聊天历史（面向模型的持久化通道：append-only，四列设计：role/type/model_content/created_at；`temporary` 表示框架临时注入，不进 UI 与恢复） |
 | `agent_chat_message_runtimes` | LLM 运行时上下文（覆盖式，压缩策略专用，按雪花 id 排序） |
+
+两条持久化通道职责分离：`agent_chat_messages` / `agent_chat_message_runtimes` 由 ChatHistoryProvider 持久化链路（`AgentChatMessageWriter`）写入，服务于 LLM 恢复与审计；`agent_session_items` 由 `MafAgentItemTracker` 在流式输出侧聚合写入（用户输入 / 思考 / 正文 / 工具调用及结果 / 审批卡片 / 错误），UI 历史加载直接读取该表投影，互不耦合。
+
+持久化层内部按「表 + 读写方向」拆分，类名与表名一一对应（`agent_<域>_<复数>` → `Agent<域><Reader|Writer>`），`AgentSessionRepository` 仅做跨表编排、不直接执行 SQL：`AgentWorkspaceReader` / `AgentWorkspaceWriter`（`agent_workspaces`）、`AgentSessionReader` / `AgentSessionWriter`（`agent_sessions`）、`AgentSessionItemReader` / `AgentSessionItemWriter`（`agent_session_items`，面向 UI）、`AgentChatMessageReader` / `AgentChatMessageWriter`（面向模型的聊天历史）、`AgentSessionItemProjector`（Item 载荷到 UI 契约的纯投影）、`AgentSessionItemInteractionStore`（Item 上的用户交互状态机）。
 
 > 注意：本版本为破坏性表结构重设计，新表使用全新 snake_case 表名，启动时自动创建；旧版 PascalCase 表（`Projects` / `Conversations` / `Messages` / `ConversationRuntimeMessages` / `AgentInteractions`）不做迁移也不删除，留存于库文件中，历史数据视为作废。
 

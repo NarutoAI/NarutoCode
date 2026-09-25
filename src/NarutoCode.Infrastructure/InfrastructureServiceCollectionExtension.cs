@@ -100,12 +100,19 @@ public static class InfrastructureServiceCollectionExtension
             await subAgentRegistry.InitializeAsync();
             services.AddSingleton(subAgentRegistry);
             services.AddSingleton<McpClientManager>();
-            services.AddSingleton<ConversationRepositoryCoordinator>();
+            services.AddSingleton<AgentChatMessageWriter>();
             // UI 渲染历史写入通道：MafAgentItemTracker 经此落 agent_session_items
-            services.AddSingleton<SqliteSessionItemWriter>();
+            services.AddSingleton<AgentSessionItemWriter>();
             services.AddSingleton<IChatHistoryPersistenceHandler, ConversationChatHistoryPersistenceHandler>();
-            services.AddSingleton<IConversationRepository, ConversationRepository>();
-            services.AddSingleton<IUserInteractionStore, UserInteractionRepository>();
+            // 持久化按表与读写方向分离：门面仅做跨表编排，不直接执行 SQL
+            services.AddSingleton<AgentWorkspaceReader>();
+            services.AddSingleton<AgentWorkspaceWriter>();
+            services.AddSingleton<AgentSessionReader>();
+            services.AddSingleton<AgentSessionWriter>();
+            services.AddSingleton<AgentSessionItemReader>();
+            services.AddSingleton<AgentChatMessageReader>();
+            services.AddSingleton<IAgentSessionRepository, AgentSessionRepository>();
+            services.AddSingleton<IUserInteractionStore, AgentSessionItemInteractionStore>();
             services.AddSingleton<DbInitializer>();
             services.AddLogging();
             services.AddLogger(logFileName);

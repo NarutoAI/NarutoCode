@@ -4,9 +4,10 @@ using NarutoCode.Domain.Enums;
 namespace NarutoCode.Domain.Conversations;
 
 /// <summary>
-/// 对话持久化仓储抽象，负责按工作目录加载会话和追加消息。
+/// 会话持久化仓储抽象（对应 agent_sessions 及其关联表）：
+/// 负责按工作目录加载会话、读取 UI 渲染历史与 LLM 聊天历史。
 /// </summary>
-public interface IConversationRepository
+public interface IAgentSessionRepository
 {
     /// <summary>
     /// 获取当前工作目录最近的对话；如果不存在则创建一个新的对话。

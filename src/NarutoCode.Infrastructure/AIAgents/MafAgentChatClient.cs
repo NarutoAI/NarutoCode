@@ -22,9 +22,9 @@ public class MafAgentChatClient : IAgentChatClient
 {
     private readonly IAgentFactory _agentFactory;
 
-    private readonly IConversationRepository _conversationRepository;
+    private readonly IAgentSessionRepository _agentSessionRepository;
 
-    private readonly SqliteSessionItemWriter _sessionItemWriter;
+    private readonly AgentSessionItemWriter _sessionItemWriter;
 
     private readonly ILogger<MafAgentChatClient> _logger;
 
@@ -37,9 +37,9 @@ public class MafAgentChatClient : IAgentChatClient
     /// <param name="llmSettingsService">当前主模型设置服务，用于判断主模型是否支持视觉。</param>
     /// <param name="sessionItemWriter">UI Item 写入器（agent_session_items）。</param>
     public MafAgentChatClient(IAgentFactory agentFactory,
-        IConversationRepository conversationRepository,
+        IAgentSessionRepository agentSessionRepository,
         ILlmSettingsService llmSettingsService,
-        SqliteSessionItemWriter sessionItemWriter,
+        AgentSessionItemWriter sessionItemWriter,
         ILogger<MafAgentChatClient> logger)
     {
         ArgumentNullException.ThrowIfNull(agentFactory);
@@ -47,7 +47,7 @@ public class MafAgentChatClient : IAgentChatClient
         ArgumentNullException.ThrowIfNull(sessionItemWriter);
 
         _agentFactory = agentFactory;
-        _conversationRepository = conversationRepository;
+        _agentSessionRepository = agentSessionRepository;
         _llmSettingsService = llmSettingsService;
         _sessionItemWriter = sessionItemWriter;
         _logger = logger;
@@ -58,10 +58,10 @@ public class MafAgentChatClient : IAgentChatClient
         ConversationSessionId sessionId,
         CancellationToken cancellationToken)
     {
-        var messages = await LoadSessionHistoryMessagesAsync(_conversationRepository, sessionId, cancellationToken);
+        var messages = await LoadSessionHistoryMessagesAsync(_agentSessionRepository, sessionId, cancellationToken);
 
         // 读取会话实体，获取数据库记录的最近一次输入 token 用量
-        var conversation = await _conversationRepository.GetByIdAsync(sessionId.Value, cancellationToken);
+        var conversation = await _agentSessionRepository.GetByIdAsync(sessionId.Value, cancellationToken);
 
         var session = await agent.CreateSessionAsync(cancellationToken);
         var chatMessages = new List<ChatMessage>(messages.Count);
@@ -87,24 +87,24 @@ public class MafAgentChatClient : IAgentChatClient
     /// <summary>
     /// 读取恢复 Agent 会话所需的历史消息，优先使用已裁剪的 LLM 运行时上下文。
     /// </summary>
-    /// <param name="conversationRepository">对话仓储。</param>
+    /// <param name="agentSessionRepository">对话仓储。</param>
     /// <param name="sessionId">会话标识。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>用于恢复 Agent 会话的历史消息。</returns>
     internal static async Task<IReadOnlyList<Domain.Entities.Message>> LoadSessionHistoryMessagesAsync(
-        IConversationRepository conversationRepository,
+        IAgentSessionRepository agentSessionRepository,
         ConversationSessionId sessionId,
         CancellationToken cancellationToken = default)
     {
         // 读取持久化历史时优先使用已裁剪的 LLM 运行时上下文，避免重启后从 UI 完整历史重复裁剪。
-        var messages = await conversationRepository.ListRuntimeMessagesAsync(sessionId.Value, cancellationToken);
+        var messages = await agentSessionRepository.ListRuntimeMessagesAsync(sessionId.Value, cancellationToken);
         if (messages.Count > 0)
         {
             return messages;
         }
 
         // 兼容旧版本数据库：首次升级后 runtime 表为空时，回退读取原历史，后续持久化会写入 runtime 表。
-        return await conversationRepository.ListMessagesAsync(sessionId.Value, cancellationToken);
+        return await agentSessionRepository.ListMessagesAsync(sessionId.Value, cancellationToken);
     }
 
     /// <summary>

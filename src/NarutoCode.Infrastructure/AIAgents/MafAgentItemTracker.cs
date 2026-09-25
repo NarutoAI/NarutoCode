@@ -11,15 +11,15 @@ namespace NarutoCode.Infrastructure.AIAgents;
 /// MAF Agent 流式内容到 UI Item（agent_session_items）的聚合器。
 /// 参照 turn 过程把流式增量聚合为独立的结构化 Item：
 /// reasoning 与 agentMessage 段互斥（新段开始先关闭活跃段）、工具调用按 CallId 关联参数与结果。
-/// 完成态 Item 构造后经 <see cref="SqliteSessionItemWriter" /> 落库；
-/// 面向 UI 的独立通道，与面向模型的 PersistenceChatHistoryProvider / ConversationRepositoryCoordinator 无耦合。
+/// 完成态 Item 构造后经 <see cref="AgentSessionItemWriter" /> 落库；
+/// 面向 UI 的独立通道，与面向模型的 PersistenceChatHistoryProvider / AgentChatMessageWriter 无耦合。
 /// </summary>
 /// <param name="sessionId">会话 ID。</param>
 /// <param name="itemWriter">Item 写入器。</param>
 /// <param name="logger">日志器。</param>
 internal sealed class MafAgentItemTracker(
     long sessionId,
-    SqliteSessionItemWriter itemWriter,
+    AgentSessionItemWriter itemWriter,
     ILogger logger)
 {
     /// <summary>活跃思考（推理）段的聚合文本；null 表示当前无活跃段。</summary>
