@@ -18,9 +18,11 @@ public sealed class AgentModeContributor : IAgentContributor
     {
         builder.AddAIContextProvider(new ModeAIContextProvider(new ModeProviderOptions
         {
-            // {current_mode} 与 {available_modes} 由框架运行时替换，此处不做字符串插值
+            // {current_mode} 与 {available_modes} 由框架运行时替换，此处不做字符串插值；
+            // 内容包裹 agent-mode 节标签，与其它系统提示词分节保持一致的归因边界
             Instructions =
                 """
+                <agent-mode>
                 ## Agent Mode
                 - 每次用户输入后使用 mode_get 检查当前模式。
                 - 用户明确指示或允许时才可使用 mode_set。
@@ -28,6 +30,7 @@ public sealed class AgentModeContributor : IAgentContributor
                 - 您当前正在运行 {current_mode} 模式。
 
                 {available_modes}
+                </agent-mode>
                 """,
             Modes = null,
             DefaultMode = "execute"

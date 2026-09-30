@@ -25,6 +25,7 @@ public sealed class FileToolsContributor(DynamicChatClient dynamicChatClient) : 
             {
                 Instructions =
                     """
+                    <file-tools>
                     ## 文件访问
                     您可以通过 `file_access_*` 工具访问当前工作目录中的文件。
                     - 除非用户明确要求，否则切勿删除或覆盖现有文件。
@@ -32,6 +33,7 @@ public sealed class FileToolsContributor(DynamicChatClient dynamicChatClient) : 
 
                     ## 使用 `edit_file` 工具规则
                     - 如果 `old_string` 在文件中不唯一，则编辑会失败。请提供更长的上下文，或使用 `replace_all`。
+                    </file-tools>
                     """
             });
 

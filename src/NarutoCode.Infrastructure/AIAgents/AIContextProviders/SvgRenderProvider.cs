@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -32,6 +32,7 @@ public sealed partial  class SvgRenderProvider : AIContextProvider
     /// </summary>
     private const string Instructions =
         """
+        <svg-render>
         ## SVG 渲染
 
         你可以使用 `VisualizeShowWidget` 工具渲染 SVG 图形。该工具会把 SVG 写入当前工作区的 `.narutocode/svg-previews` 目录，并生成一个安全隔离的 HTML 预览文件。
@@ -44,6 +45,7 @@ public sealed partial  class SvgRenderProvider : AIContextProvider
         - 不要在 SVG 中包含 script、foreignObject、onload 等事件属性、javascript: 链接或外部 URL等非法元素。
         - 生成结果后，向用户说明 SVG 文件路径和 HTML 预览路径。
         - 不要把大段 SVG 源码直接输出给用户，除非用户明确要求查看源码。
+        </svg-render>
         """;
 
     private readonly string _workspaceDirectory;

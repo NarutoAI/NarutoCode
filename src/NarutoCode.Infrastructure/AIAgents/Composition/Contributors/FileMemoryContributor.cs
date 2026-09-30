@@ -27,10 +27,12 @@ public sealed class FileMemoryContributor : IAgentContributor
             {
                 Instructions =
                     """
+                    <file-memory>
                     ## 基于文件的内存
                     - file_memory_* 仅用于当前会话的工作内存，与其他会话隔离。
                     - 开始新任务前使用 list 和 search 检查已有相关记忆。
                     - 用户明确偏好、约束或纠正必须以简洁中文要点保存。
+                    </file-memory>
                     """
             })));
     }

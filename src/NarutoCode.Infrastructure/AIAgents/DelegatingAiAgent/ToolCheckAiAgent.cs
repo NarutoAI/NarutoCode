@@ -129,8 +129,11 @@ public class ToolCheckAiAgent(AIAgent innerAgent) : DelegatingAIAgent(innerAgent
     /// <summary>
     /// 工具自动补全结果的消息内容：当历史助手消息中的工具调用未被回应时，
     /// 用此占位结果告知模型该工具执行已被中断，避免后续轮次假设工具已执行成功。
+    /// 内容包裹 tool-interrupted 上下文标签，向模型声明这是框架注入的占位结果而非工具真实输出。
     /// </summary>
-    private const string ToolAutoAdditionMessage =
-        "<system-remind>\nTool execution interrupted: the run stopped before tool exec finished. Do not assume it completed; re-run it only if its work is still needed。\n</system-remind>";
+    private static readonly string ToolAutoAdditionMessage =
+        PromptTags.WrapContextReminder(
+            PromptTags.RoleToolInterrupted,
+            "Tool execution interrupted: the run stopped before tool exec finished. Do not assume it completed; re-run it only if its work is still needed.");
 }
 #pragma warning restore MAAI001

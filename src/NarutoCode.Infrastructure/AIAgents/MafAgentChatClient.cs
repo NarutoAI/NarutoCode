@@ -365,7 +365,7 @@ public class MafAgentChatClient : IAgentChatClient
         CancellationToken cancellationToken)
     {
         var chatMessage = message.Attachments.Count == 0
-            ? new ChatMessage(ChatRole.User, message.Content)
+            ? new ChatMessage(ChatRole.User, PromptTags.WrapUserInput(message.Content))
             : await CreateUserInputMessageWithAttachmentsAsync(message, cancellationToken);
 
         chatMessage.AdditionalProperties = new AdditionalPropertiesDictionary
@@ -400,7 +400,8 @@ public class MafAgentChatClient : IAgentChatClient
         var contents = new List<AIContent>();
         if (!string.IsNullOrWhiteSpace(message.Content))
         {
-            contents.Add(new TextContent(message.Content));
+            // 文本部分包裹用户输入边界标签；图片 DataContent 保持二进制，不做文本包裹
+            contents.Add(new TextContent(PromptTags.WrapUserInput(message.Content)));
         }
 
         foreach (var attachment in message.Attachments)
@@ -426,12 +427,14 @@ public class MafAgentChatClient : IAgentChatClient
     /// <summary>
     /// 逐张调用独立视觉模型解析图片附件，拼接为纯文本主模型可消费的用户消息文本；
     /// 单张识别失败降级为占位文本，不影响其余图片与原用户输入。
+    /// 输出分区：用户原文包裹 user-input 边界标签置于首位，图片解析结果逐段包裹
+    /// context-reminder（data-role=attachment-analysis），使模型能区分用户指令与视觉模型转述。
     /// </summary>
     /// <param name="content">用户原始文本输入，可为空。</param>
     /// <param name="attachments">图片附件集合。</param>
     /// <param name="visionClient">独立视觉模型客户端。</param>
     /// <param name="cancellationToken">取消令牌。</param>
-    /// <returns>原文本与各图片解析结果拼接后的消息文本。</returns>
+    /// <returns>用户输入分区与各图片解析分区拼接后的消息文本。</returns>
     internal static async Task<string> RecognizeAttachmentsAsTextAsync(
         string content,
         IReadOnlyList<AgentMessageAttachment> attachments,
@@ -440,16 +443,17 @@ public class MafAgentChatClient : IAgentChatClient
     {
         var sections = new List<string>();
         var userText = content.Trim();
+        // 用户文本非空时包裹 user-input 边界标签：让主模型区分真实用户指令与图片解析数据
         if (userText.Length > 0)
         {
-            sections.Add(userText);
+            sections.Add(PromptTags.WrapUserInput(userText));
         }
 
         // 串行识别：保证多图顺序稳定，并避免视觉端点并发限流
         for (var index = 0; index < attachments.Count; index++)
         {
             var attachment = attachments[index];
-            // 用户文本作为识别上下文，帮助视觉模型聚焦与问题相关的内容
+            // 用户文本作为识别上下文，帮助视觉模型聚焦与问题相关的内容；prompt 发给视觉模型本身，无需携带标签约定
             var prompt = userText.Length == 0
                 ? "请准确描述图片中的关键信息、可读文字（OCR）、界面元素和与用户问题相关的内容。"
                 : $"用户消息：{userText}\n请结合上述用户消息，准确描述图片中的关键信息、可读文字（OCR）、界面元素和相关内容。";
@@ -459,7 +463,10 @@ public class MafAgentChatClient : IAgentChatClient
                 var description = await visionClient
                     .RecognizeAsync(attachment.Data, attachment.MediaType, prompt, cancellationToken)
                     .ConfigureAwait(false);
-                sections.Add($"[图片 {index + 1} 解析]\n{description.Trim()}");
+                // 解析结果包裹 attachment-analysis 上下文标签：这是视觉模型的转述数据，不是用户指令
+                sections.Add(PromptTags.WrapContextReminder(
+                    PromptTags.RoleAttachmentAnalysis,
+                    $"[图片 {index + 1} 解析]\n{description.Trim()}"));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -468,7 +475,9 @@ public class MafAgentChatClient : IAgentChatClient
             catch (Exception ex)
             {
                 // 单张失败保留占位文本，原用户输入与其余图片继续发送
-                sections.Add($"[图片 {index + 1} 解析失败]\n{ex.Message}");
+                sections.Add(PromptTags.WrapContextReminder(
+                    PromptTags.RoleAttachmentAnalysis,
+                    $"[图片 {index + 1} 解析失败]\n{ex.Message}"));
             }
         }
 

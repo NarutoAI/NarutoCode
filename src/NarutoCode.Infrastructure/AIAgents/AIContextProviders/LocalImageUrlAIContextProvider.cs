@@ -18,6 +18,7 @@ public sealed class LocalImageUrlAIContextProvider : AIContextProvider
     /// </summary>
     private const string Instructions =
         """
+        <image-url>
         ## 本地 URL 图片加载
 
         你可以使用 `load_local_image_url` 工具把 `file://` 或 `http(s)://` 形式的图片 URL 转成图片内容，供你直接查看。
@@ -27,6 +28,7 @@ public sealed class LocalImageUrlAIContextProvider : AIContextProvider
         - 仅接受 PNG / JPEG / WebP / GIF，单图不超过 10MB。
         - 工具成功时返回图片内容，你在本轮即可看到图；失败时返回文本错误。
         - 不要在回复中复读图片的每个细节，按用户问题提取关键信息。
+        </image-url>
         """;
 
     private readonly IImageUrlLoader _loader;

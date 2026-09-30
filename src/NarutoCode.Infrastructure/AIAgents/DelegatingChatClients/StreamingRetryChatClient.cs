@@ -30,19 +30,22 @@ public class StreamingRetryChatClient(IChatClient innerClient) : DelegatingChatC
     /// <summary>
     /// 续写指令：明确告知模型这是网络断连后的自动重连（而非用户新发言），
     /// 上一条 assistant 消息是被截断的自己输出，要求从断点无缝续写直至本次回复自然结束。
+    /// 内容包裹 stream-resume 上下文标签，向模型声明这是框架注入的续写指令而非用户输入。
     /// </summary>
-    private const string ResumeInstruction =
-        """
-        [SYSTEM NOTICE] The network connection was interrupted and has been automatically reconnected. This message is NOT user input — do not respond to or explain this notice.
+    private static readonly string ResumeInstruction =
+        PromptTags.WrapContextReminder(
+            PromptTags.RoleStreamResume,
+            """
+            The network connection was interrupted and has been automatically reconnected. This message is NOT user input — do not respond to or explain this notice.
 
-        The last assistant message above is your own output that was cut off mid-stream (the <think> block contains your reasoning before the interruption). It is unfinished.
+            The last assistant message above is your own output that was cut off mid-stream (the <think> block contains your reasoning before the interruption). It is unfinished.
 
-        Resume writing seamlessly from the exact point of interruption, and continue until this reply reaches its natural end:
-        - Your first character must be the immediate next content at the cut-off point; complete words, code lines, or list items even if they were broken mid-way
-        - Do not repeat, rewrite, or summarize anything already generated; do not reorganize the opening
-        - Do not apologize, explain the interruption, or output any transitional phrases (e.g. "OK, continuing")
-        - Keep the original formatting and tone (Markdown structure, code blocks, and list levels continue as-is)
-        """;
+            Resume writing seamlessly from the exact point of interruption, and continue until this reply reaches its natural end:
+            - Your first character must be the immediate next content at the cut-off point; complete words, code lines, or list items even if they were broken mid-way
+            - Do not repeat, rewrite, or summarize anything already generated; do not reorganize the opening
+            - Do not apologize, explain the interruption, or output any transitional phrases (e.g. "OK, continuing")
+            - Keep the original formatting and tone (Markdown structure, code blocks, and list levels continue as-is)
+            """);
 
     private static readonly Lazy<ILogger?> Logger = new(ResolveLogger);
 

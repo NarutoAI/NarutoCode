@@ -1,4 +1,4 @@
-using Microsoft.Agents.AI;
+﻿using Microsoft.Agents.AI;
 using NarutoCode.Infrastructure.AIAgents.AIContextProviders;
 
 namespace NarutoCode.Infrastructure.AIAgents.LoopEvaluators;
@@ -22,8 +22,10 @@ public class TaskLoopEvaluator : LoopEvaluator
         var isExistsRemainTask = context.Session.IsExistsInProgressTask(context.Agent);
         if (isExistsRemainTask)
         {
-            return LoopEvaluation.Continue(
-                "<system-reminder> Reminder: Continue with the current task and use `TaskUpdate` to keep track of the status. If it is necessary to wait for the user's confirmation, call the `TaskUpdate` tool to update the status to `waiting_ack`</system-reminder>");
+            // 续跑提醒走统一的框架注入上下文标签，向模型声明这是框架提醒而非用户指令
+            return LoopEvaluation.Continue(PromptTags.WrapContextReminder(
+                PromptTags.RoleLoopReminder,
+                "Reminder: Continue with the current task and use `TaskUpdate` to keep track of the status. If it is necessary to wait for the user's confirmation, call the `TaskUpdate` tool to update the status to `waiting_ack`"));
         }
 
         return LoopEvaluation.Stop();

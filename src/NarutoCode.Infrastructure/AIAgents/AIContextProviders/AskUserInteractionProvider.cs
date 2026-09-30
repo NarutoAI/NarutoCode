@@ -31,6 +31,7 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
     {
         var instructions =
             """
+            <user-interaction>
             ## 用户交互
 
             你可以通过 `narutocode_ask_user_question` 工具向用户发起提问，用户会在界面弹窗中作答，工具返回其回答后你再继续。
@@ -47,6 +48,7 @@ internal sealed class AskUserInteractionProvider(IUserInteractionManager interac
             - 每道选择题的选项列表最后一个必须固定为「其它」选项（id=`other`，label=`其它`），保证用户始终能表达选项之外的想法；用户选择「其它」时通常会在补充说明中写明具体意图，应结合补充说明理解。
             - 开放式提问：省略 `options` 与 `questions`，仅提供 `question`，用户以自由文本作答。
             - 用户取消回答时，基于已有信息继续或说明无法继续的原因，不要立即重复追问。
+            </user-interaction>
             """;
 
         // 工具委托：参数经源生成上下文反序列化，保证 AOT 安全

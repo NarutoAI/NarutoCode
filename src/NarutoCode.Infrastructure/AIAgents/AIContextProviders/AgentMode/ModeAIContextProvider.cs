@@ -271,9 +271,12 @@ public class ModeAIContextProvider:AIContextProvider
         // so the agent clearly sees the change rather than relying solely on the system instructions.
         if (previousModeForNotification != null)
         {
+            // 模式切换通知包裹 mode-switch 上下文标签：这是框架注入的状态同步，不是用户指令
             aiContext.Messages =
             [
-                new ChatMessage(ChatRole.User, $"[Mode changed: The operating mode has been switched from \"{previousModeForNotification}\" to \"{currentMode}\". You must now adjust your behavior to match the \"{currentMode}\" mode.]"),
+                new ChatMessage(ChatRole.User, PromptTags.WrapContextReminder(
+                    PromptTags.RoleModeSwitch,
+                    $"The operating mode has been switched from \"{previousModeForNotification}\" to \"{currentMode}\". You must now adjust your behavior to match the \"{currentMode}\" mode.")),
             ];
         }
 

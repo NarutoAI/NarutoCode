@@ -58,6 +58,7 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
 
         var instructions =
             $"""
+             <sub-agents>
              # 子 Agent 委派
 
              你当前工作目录下配置了 **{agents.Count} 个子 Agent**，它们各自在独立的工作目录中执行，拥有独立的文件系统、Shell 和会话上下文。
@@ -93,6 +94,7 @@ internal sealed class SubAgentAiContextProvider : AIContextProvider
              1. 校验结果是否满足原始需求。
              2. 汇总多个子 Agent 的结果。
              3. 以你的角色向最终用户回复，不要直接透传子 Agent 的原始输出。
+             </sub-agents>
              """;
         //构建工具
         var tool = AIFunctionFactory.Create((Func<DelegateAgentsRequest, CancellationToken, Task<string>>) Handler,

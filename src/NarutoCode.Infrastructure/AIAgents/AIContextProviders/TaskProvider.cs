@@ -23,7 +23,7 @@ public sealed class TaskProvider : AIContextProvider
     /// </summary>
     private const string Instructions =
         """
-        
+        <task-tools>
         你可以使用 Task 系列工具维护当前会话的结构化任务列表。任务列表用于跟踪复杂、多步骤、需要持续推进的工作，让用户能够理解当前进度；它是会话状态，不是新的用户请求。始终优先处理用户最新指令，只有在任务状态确实变化时才更新任务。
 
         ## 总体规则
@@ -102,6 +102,7 @@ public sealed class TaskProvider : AIContextProvider
         - 当任务长时间运行、用户要求终止、执行方向错误或继续运行会产生风险时使用。
         - 停止前确认 task_id 正确；不要停止无关任务。
         - 停止成功后，根据实际情况用 TaskUpdate 更新关联工作状态或创建后续处理任务。
+        </task-tools>
         """;
 
     private readonly ProviderSessionState<TaskAgentTaskState> _sessionState;
@@ -172,7 +173,9 @@ public sealed class TaskProvider : AIContextProvider
         {
             Instructions = Instructions,
             Tools = this._tools ??= this.CreateTools(),
-            Messages = [new ChatMessage(ChatRole.User, taskListMessage)]
+            // 任务列表快照包裹 task-list 上下文标签：这是框架注入的会话状态，不是用户指令
+            Messages = [new ChatMessage(ChatRole.User,
+                PromptTags.WrapContextReminder(PromptTags.RoleTaskList, taskListMessage))]
         };
         return aiContext;
     }

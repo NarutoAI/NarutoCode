@@ -21,6 +21,7 @@ public sealed class VisionAIContextProvider : AIContextProvider
     /// </summary>
     private const string Instructions =
         """
+        <vision>
         ## 图片识别
 
         你可以使用 `recognize_image` 工具调用独立视觉模型识别单张图片，返回自然语言文本描述。当前主模型可能不支持视觉输入，该工具是查看图片内容的唯一途径。
@@ -31,6 +32,7 @@ public sealed class VisionAIContextProvider : AIContextProvider
         - 仅支持 PNG / JPEG / WebP / GIF，单图不超过 10MB。
         - `prompt` 必填，用中文明确识别方向，例如「提取图中所有文字并保留版式」「描述这张 UI 截图的布局与可见错误」。
         - 工具返回的描述是视觉模型的输出，作为你回答用户的依据；不要凭空补充图中不存在的内容。
+        </vision>
         """;
 
     private readonly IImageUrlLoader _loader;

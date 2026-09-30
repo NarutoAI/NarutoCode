@@ -1,4 +1,4 @@
-using Microsoft.Agents.AI;
+﻿using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using NarutoCode.Domain;
 using NarutoCode.Domain.Messages;
@@ -29,8 +29,9 @@ public class ListeningMessageQueueChatClient(IChatClient innerClient) : Delegati
             //读取消息
             if (pendingUserMessageQueue.TryDrain(out var queueMessage))
             {
+               // 运行中插队的消息同样是真实用户输入，包裹 user-input 边界标签保持语义一致
                await messageInjectingChatClient!.EnqueueMessagesAsync(AIAgent.CurrentRunContext!.Session!,
-                    [new ChatMessage(ChatRole.User, [new TextContent(queueMessage)])], cancellationToken);
+                    [new ChatMessage(ChatRole.User, [new TextContent(PromptTags.WrapUserInput(queueMessage))])], cancellationToken);
             }
         }
 #pragma warning restore MAAI001
